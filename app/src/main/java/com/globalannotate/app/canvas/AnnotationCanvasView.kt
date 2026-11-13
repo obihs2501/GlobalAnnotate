@@ -140,11 +140,14 @@ class AnnotationCanvasView(context: Context) : View(context) {
             strokeJoin = Paint.Join.ROUND
             color = stroke.color
         }
-        val base = if (alphaApplied) stroke.alpha else 255
+        // Mi Canvas watercolour: one crisp core pass plus two wider, thinner
+        // "bleed" passes so the edge stays soft and overlaps deepen.
+        val baseAlpha = Color.alpha(stroke.color)
         for (pass in 0 until 3) {
-            paint.alpha = (base * (0.55f - pass * 0.13f)).toInt().coerceIn(8, 255)
-            paint.strokeWidth = stroke.width * (1f + pass * 0.55f)
+            paint.alpha = (baseAlpha * (0.55f - pass * 0.15f)).toInt().coerceIn(6, 255)
             for (i in 1 until pts.size) {
+                val width = (pts[i - 1].width + pts[i].width) / 2f
+                paint.strokeWidth = width * (1f + pass * 0.45f)
                 canvas.drawLine(pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y, paint)
             }
         }

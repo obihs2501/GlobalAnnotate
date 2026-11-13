@@ -798,7 +798,7 @@ class AnnotationService : Service(),
         private const val CHANNEL_ID = "global_annotate"
         private const val OVERLAY_HIDE_SETTLE_MS = 160L
         private const val BAR_WIDTH_DP = 620
-        private const val BAR_HEIGHT_DP = 94
+        private const val BAR_HEIGHT_DP = 88
         private const val PANEL_ANIM_MS = 150L
         private const val PANEL_ENTER_SCALE = 0.96f
         private val PanelInterpolator = PathInterpolator(0f, 0f, 0.2f, 1f)

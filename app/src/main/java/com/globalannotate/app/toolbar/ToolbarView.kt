@@ -66,7 +66,7 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
         orientation = VERTICAL
         setBackgroundResource(R.drawable.bg_toolbar)
         elevation = dp(6)
-        setPadding(dp(8).toInt(), dp(5).toInt(), dp(8).toInt(), dp(7).toInt())
+        setPadding(dp(20).toInt(), dp(12).toInt(), dp(20).toInt(), dp(12).toInt())
 
         val handle = View(context).apply {
             setBackgroundColor(ContextCompat.getColor(context, R.color.ga_divider))
@@ -95,7 +95,7 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
                     listener.onStyle(style, centerOnScreen(this))
                 }
                 foreground = Ripple.rounded(context, dp(14))
-                layoutParams = LinearLayout.LayoutParams(dp(40).toInt(), dp(72).toInt())
+                layoutParams = LinearLayout.LayoutParams(dp(48).toInt(), dp(64).toInt())
             }
             glyphs[style] = glyph
             row.addView(glyph)
@@ -104,7 +104,7 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
         // 2x2 quick colours, matching Mi Canvas (3 fixed + rainbow).
         val grid = LinearLayout(context).apply {
             orientation = VERTICAL
-            layoutParams = LinearLayout.LayoutParams(dp(62).toInt(), dp(62).toInt()).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(76).toInt(), dp(76).toInt()).apply {
                 marginStart = dp(6).toInt()
             }
         }
@@ -136,7 +136,7 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
         val moreButton = circle(R.drawable.ic_more) {
             listener.onOpenMoreMenu(centerOnScreen(moreAnchor))
         }
-        moreButton.layoutParams = LinearLayout.LayoutParams(dp(36).toInt(), dp(36).toInt()).apply {
+        moreButton.layoutParams = LinearLayout.LayoutParams(dp(40).toInt(), dp(40).toInt()).apply {
             marginStart = dp(6).toInt()
         }
         moreAnchor = moreButton
@@ -146,8 +146,8 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
         row.addView(View(context).apply {
             setBackgroundColor(ContextCompat.getColor(context, R.color.ga_divider))
             layoutParams = LinearLayout.LayoutParams(dp(1).toInt(), dp(26).toInt()).apply {
-                marginStart = dp(18).toInt()
-                marginEnd = dp(18).toInt()
+                marginStart = dp(12).toInt()
+                marginEnd = dp(12).toInt()
             }
         })
         row.addView(circle(R.drawable.ic_close) { listener.onQuit() })
@@ -240,7 +240,7 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
             iconRes = icon
             onTap = tap
             contentDescription = resources.getResourceEntryName(icon)
-            layoutParams = LinearLayout.LayoutParams(dp(36).toInt(), dp(36).toInt())
+            layoutParams = LinearLayout.LayoutParams(dp(40).toInt(), dp(40).toInt())
         }
 
     /** Natural width of the row, so the bar hugs its content instead of leaving gaps. */
