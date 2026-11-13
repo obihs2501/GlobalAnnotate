@@ -69,7 +69,7 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
         orientation = VERTICAL
         setBackgroundResource(R.drawable.bg_toolbar)
         elevation = dp(8)
-        setPadding(dp(10), dp(8), dp(10), dp(8))
+        setPadding(dp(10).toInt(), dp(8).toInt(), dp(10).toInt(), dp(8).toInt())
 
         // ── Row 1 ──────────────────────────────────────────────────────────
         val row1 = LinearLayout(context).apply {
