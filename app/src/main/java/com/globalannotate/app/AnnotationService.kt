@@ -142,7 +142,9 @@ class AnnotationService : Service(),
         val passiveFlags = baseFlags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
 
         canvasParams = params(MATCH, MATCH, baseFlags)
-        toolbarParams = params(WRAP, WRAP, passiveFlags).apply {
+        // Fixed size: a WRAP overlay window measures to 0 before its content
+        // lays out, which made the whole bar disappear.
+        toolbarParams = params(dp(500), dp(94), passiveFlags).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             y = dp(24)
         }
