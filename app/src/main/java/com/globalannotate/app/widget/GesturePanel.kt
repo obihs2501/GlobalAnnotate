@@ -60,7 +60,7 @@ class GesturePanel(context: Context, private val listener: Listener) : android.w
     private val expanded = mutableSetOf<String>()
 
     private val content = LinearLayout(context).apply {
-        orientation = VERTICAL
+        orientation = LinearLayout.VERTICAL
     }
 
     init {
@@ -105,7 +105,7 @@ class GesturePanel(context: Context, private val listener: Listener) : android.w
 
     private fun addGestureRow(key: String, label: String) {
         val header = LinearLayout(context).apply {
-            orientation = HORIZONTAL
+            orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             isClickable = true
             setPadding(0, dp(16), 0, dp(16))
@@ -128,7 +128,7 @@ class GesturePanel(context: Context, private val listener: Listener) : android.w
         valueViews[key] = value
 
         val list = LinearLayout(context).apply {
-            orientation = VERTICAL
+            orientation = LinearLayout.VERTICAL
             visibility = View.GONE
         }
         for (action in shownActions) list.addView(actionRow(key, action))
@@ -148,7 +148,7 @@ class GesturePanel(context: Context, private val listener: Listener) : android.w
 
     private fun actionRow(gesture: String, action: GestureAction): View {
         val row = LinearLayout(context).apply {
-            orientation = HORIZONTAL
+            orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             isClickable = true
             setPadding(dp(12), dp(12), dp(4), dp(12))

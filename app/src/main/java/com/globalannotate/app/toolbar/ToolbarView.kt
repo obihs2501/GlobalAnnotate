@@ -188,7 +188,7 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
             glyph.animate()
                 .scaleX(if (selected) 1.12f else 1f)
                 .scaleY(if (selected) 1.12f else 1f)
-                .translationY(if (selected) -dp(6) else 0f)
+                .translationY(if (selected) -dp(6).toFloat() else 0f)
                 .setDuration(150)
                 .start()
         }
