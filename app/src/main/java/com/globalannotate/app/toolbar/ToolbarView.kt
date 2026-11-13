@@ -8,7 +8,9 @@ import android.graphics.SweepGradient
 import android.view.MotionEvent
 import android.view.Gravity
 import android.view.View
-import android.view.ViewGroup.LayoutParams.MATCH_PARENT
+import android.view.View.MeasureSpec
+import android.view.View
+import android.view.View.MeasureSpecGroup.LayoutParams.MATCH_PARENT
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import androidx.core.content.ContextCompat
@@ -57,8 +59,8 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
     private lateinit var moreAnchor: View
 
     private val styles = listOf(
-        PenStyle.PENCIL, PenStyle.BALLPOINT, PenStyle.INK_PEN,
-        PenStyle.MARKER, PenStyle.HIGHLIGHTER, PenStyle.LASER, PenStyle.ERASER,
+        PenStyle.PENCIL, PenStyle.BALLPOINT, PenStyle.INK_PEN, PenStyle.MARKER,
+        PenStyle.HIGHLIGHTER, PenStyle.WATER_COLOR, PenStyle.LASER, PenStyle.ERASER,
     )
 
     init {
@@ -241,6 +243,17 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
             contentDescription = resources.getResourceEntryName(icon)
             layoutParams = LinearLayout.LayoutParams(dp(36).toInt(), dp(36).toInt())
         }
+
+    /** Natural width of the row, so the bar hugs its content instead of leaving gaps. */
+    fun contentWidthPx(): Int {
+        val child = (getChildAt(childCount - 1) as HorizontalScrollView).getChildAt(0)
+        child.measure(
+            MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
+            MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
+        )
+        val padding = paddingLeft + paddingRight
+        return child.measuredWidth + padding + dp(8).toInt()
+    }
 
     private fun scroll(child: View): HorizontalScrollView =
         HorizontalScrollView(context).apply {

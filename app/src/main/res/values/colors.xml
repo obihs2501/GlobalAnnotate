@@ -16,4 +16,5 @@
     <!-- Miuix pressed-state ripple; 12% black on light, 12% white on dark -->
     <color name="ga_ripple">#1F000000</color>
     <color name="ga_text_hint">#66000000</color>
+    <color name="ga_swatch_ring">#1F1F1F</color>
 </resources>

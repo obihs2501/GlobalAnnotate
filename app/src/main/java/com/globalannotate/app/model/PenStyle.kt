@@ -24,11 +24,13 @@ enum class PenStyle(
     val grain: Boolean = false,
     val glow: Boolean = false,
     val inkHighlight: Boolean = false,
+    val softEdge: Boolean = false,
 ) {
     INK_PEN("钢笔", 1, 30, 15, 255, showSensitivity = true, sensitivityLabel = "钢笔灵敏度", showTipSize = true),
     BALLPOINT("圆珠笔", 1, 22, 6, 255, inkHighlight = true),
     PENCIL("铅笔", 1, 6, 3, 200, showSensitivity = true, sensitivityLabel = "铅笔灵敏度", grain = true),
     MARKER("马克笔", 5, 65, 30, 165, squareCap = true),
+    WATER_COLOR("水彩笔", 5, 65, 30, 120, softEdge = true),
     HIGHLIGHTER("荧光笔", 5, 65, 30, 80, squareCap = true),
     LASER("激光笔", 1, 30, 6, 235, fades = true, glow = true),
     ERASER("橡皮", 4, 32, 12, 255, isEraser = true),

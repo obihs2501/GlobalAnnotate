@@ -38,8 +38,9 @@ class SwatchView(context: Context, val color: Int) : View(context) {
         canvas.drawCircle(cx, cy, radius, paint)
 
         if (checked) {
-            paint.strokeWidth = 2.5f * density
-            paint.color = ContextCompat.getColor(context, R.color.ga_accent)
+            // Selected swatch: white ring with a gap, like Mi Canvas.
+            paint.strokeWidth = 2f * density
+            paint.color = ContextCompat.getColor(context, R.color.ga_swatch_ring)
             canvas.drawCircle(cx, cy, min(width, height) * 0.46f, paint)
         }
     }

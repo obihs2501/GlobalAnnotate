@@ -145,10 +145,13 @@ class AnnotationService : Service(),
         canvasParams = params(MATCH, MATCH, baseFlags)
         // Fixed size: a WRAP overlay window measures to 0 before its content
         // lays out, which made the whole bar disappear.
-        toolbarParams = params(dp(BAR_WIDTH_DP), dp(BAR_HEIGHT_DP), passiveFlags).apply {
+        // Hug the content: a fixed 620dp bar left an empty strip on the right.
+        val barWidth = toolbar.contentWidthPx()
+            .coerceIn(dp(420), (screenWidth - dp(24)).coerceAtLeast(dp(320)))
+        toolbarParams = params(barWidth, dp(BAR_HEIGHT_DP), passiveFlags).apply {
             gravity = Gravity.TOP or Gravity.START
             x = prefs.getInt(KEY_BAR_X, -1).let {
-                if (it >= 0) it else ((screenWidth - dp(BAR_WIDTH_DP)) / 2).coerceAtLeast(0)
+                if (it >= 0) it else ((screenWidth - barWidth) / 2).coerceAtLeast(0)
             }
             y = prefs.getInt(KEY_BAR_Y, -1).let {
                 if (it >= 0) it else (screenHeight - dp(BAR_HEIGHT_DP) - dp(24)).coerceAtLeast(0)

@@ -15,4 +15,5 @@
     <color name="ga_eraser_hint">#66FFFFFF</color>
     <color name="ga_ripple">#1FFFFFFF</color>
     <color name="ga_text_hint">#7FFFFFFF</color>
+    <color name="ga_swatch_ring">#FFFFFF</color>
 </resources>

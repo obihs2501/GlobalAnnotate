@@ -78,6 +78,18 @@ class TrackSlider(context: Context) : View(context) {
         canvas.drawCircle(cx, h / 2f, radius, ringPaint)
     }
 
+    private fun android.graphics.Canvas.clipRoundRectCompat(l: Float, t: Float, r: Float, b: Float, radius: Float) {
+        val path = android.graphics.Path().apply {
+            addRoundRect(android.graphics.RectF(l, t, r, b), radius, radius, android.graphics.Path.Direction.CW)
+        }
+        clipPath(path)
+    }
+
+    private fun isLight(color: Int): Boolean =
+        0.299f * Color.red(color) + 0.587f * Color.green(color) + 0.114f * Color.blue(color) > 150f
+
+    private fun RectF.insetCopy(d: Float): RectF = RectF(left + d, top + d, right - d, bottom - d)
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN ||
             event.actionMasked == MotionEvent.ACTION_MOVE
@@ -106,13 +118,22 @@ class HueGrid(context: Context, private val onPick: (Int) -> Unit) : View(contex
     }
     private val cell = RectF()
 
+    /** Mi Canvas grid: 11 hue columns plus a white→black ramp in the last one. */
     fun colorAt(col: Int, row: Int): Int {
-        val hue = col * 360f / cols
         val t = row / (rows - 1f)
+        if (col == cols - 1) {
+            val v = (255 * (1f - t)).toInt().coerceIn(0, 255)
+            return Color.rgb(v, v, v)
+        }
+        val hue = col * 360f / (cols - 1)
         return Color.HSVToColor(floatArrayOf(hue, 0.10f + t * 0.86f, 1f - t * 0.52f))
     }
 
     override fun onDraw(canvas: Canvas) {
+        // Mi Canvas clips the palette to a 10dp rounded rect.
+        val radius = 10f * resources.displayMetrics.density
+        val saved = canvas.save()
+        canvas.clipRoundRectCompat(0f, 0f, width.toFloat(), height.toFloat(), radius)
         val cw = width.toFloat() / cols
         val ch = height.toFloat() / rows
         for (r in 0 until rows) {
@@ -122,10 +143,32 @@ class HueGrid(context: Context, private val onPick: (Int) -> Unit) : View(contex
                 paint.style = Paint.Style.FILL
                 cell.set(c * cw, r * ch, (c + 1) * cw, (r + 1) * ch)
                 canvas.drawRect(cell, paint)
-                if (selectedColor == color) canvas.drawRect(cell, outline)
+            }
+        }
+        canvas.restoreToCount(saved)
+        selectedColor?.let { picked ->
+            for (r in 0 until rows) {
+                for (c in 0 until cols) {
+                    if (colorAt(c, r) != picked) continue
+                    cell.set(c * cw, r * ch, (c + 1) * cw, (r + 1) * ch)
+                    outline.color = if (isLight(picked)) Color.BLACK else Color.WHITE
+                    canvas.drawRect(cell.insetCopy(2f), outline)
+                }
             }
         }
     }
+
+    private fun android.graphics.Canvas.clipRoundRectCompat(l: Float, t: Float, r: Float, b: Float, radius: Float) {
+        val path = android.graphics.Path().apply {
+            addRoundRect(android.graphics.RectF(l, t, r, b), radius, radius, android.graphics.Path.Direction.CW)
+        }
+        clipPath(path)
+    }
+
+    private fun isLight(color: Int): Boolean =
+        0.299f * Color.red(color) + 0.587f * Color.green(color) + 0.114f * Color.blue(color) > 150f
+
+    private fun RectF.insetCopy(d: Float): RectF = RectF(left + d, top + d, right - d, bottom - d)
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN ||
@@ -164,6 +207,18 @@ class HueBar(context: Context, private val onPick: (Int) -> Unit) : View(context
         paint.shader = null
         canvas.drawCircle(width * (hue / 360f), height / 2f, height * 0.35f, knob)
     }
+
+    private fun android.graphics.Canvas.clipRoundRectCompat(l: Float, t: Float, r: Float, b: Float, radius: Float) {
+        val path = android.graphics.Path().apply {
+            addRoundRect(android.graphics.RectF(l, t, r, b), radius, radius, android.graphics.Path.Direction.CW)
+        }
+        clipPath(path)
+    }
+
+    private fun isLight(color: Int): Boolean =
+        0.299f * Color.red(color) + 0.587f * Color.green(color) + 0.114f * Color.blue(color) > 150f
+
+    private fun RectF.insetCopy(d: Float): RectF = RectF(left + d, top + d, right - d, bottom - d)
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_DOWN ||
