@@ -111,7 +111,7 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
         row2.addView(widthValue)
 
         pressureButton = iconButton(R.drawable.ic_pressure) {
-            listener.onPressure(!pressureButton.selected)
+            listener.onPressure(!pressureButton.checked)
         }
         row2.addView(divider())
         row2.addView(pressureButton)
@@ -134,15 +134,15 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
 
     fun update(brush: BrushConfig, mode: OverlayMode, canUndo: Boolean, canRedo: Boolean) {
         updating = true
-        brushButtons.forEach { (style, button) -> button.selected = style == brush.style }
+        brushButtons.forEach { (style, button) -> button.checked = style == brush.style }
         colorStrip.setColor(brush.color)
         preview.brush = brush
         widthSeek.progress = (((brush.widthDp - 1f) / 59f) * 100f).toInt().coerceIn(0, 100)
         widthValue.text = brush.widthDp.toInt().toString()
-        pressureButton.selected = brush.pressureEnabled
+        pressureButton.checked = brush.pressureEnabled
         undoButton.enabledVisual = canUndo
         redoButton.enabledVisual = canRedo
-        modeButton.selected = mode == OverlayMode.ROOT_SPLIT
+        modeButton.checked = mode == OverlayMode.ROOT_SPLIT
         updating = false
     }
 

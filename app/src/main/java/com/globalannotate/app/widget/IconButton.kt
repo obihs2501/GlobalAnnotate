@@ -14,7 +14,7 @@ class IconButton(context: Context) : View(context) {
 
     var iconRes: Int = 0
         set(value) { field = value; invalidate() }
-    var selected: Boolean = false
+    var checked: Boolean = false
         set(value) { field = value; invalidate() }
     var enabledVisual: Boolean = true
         set(value) { field = value; alpha = if (value) 1f else 0.35f; invalidate() }
@@ -34,7 +34,7 @@ class IconButton(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         val pad = dp(2)
         bounds.set(pad, pad, width - pad, height - pad)
-        if (selected) {
+        if (checked) {
             backgroundPaint.color = Color.parseColor("#E5F2FF")
             backgroundPaint.style = Paint.Style.FILL
             canvas.drawRoundRect(bounds, dp(11), dp(11), backgroundPaint)
@@ -42,7 +42,7 @@ class IconButton(context: Context) : View(context) {
         val icon = context.getDrawable(iconRes)?.mutate()
         drawable = icon
         icon ?: return
-        val tint = if (selected) Color.parseColor("#0D84FF") else Color.parseColor("#3C4043")
+        val tint = if (checked) Color.parseColor("#0D84FF") else Color.parseColor("#3C4043")
         icon.setTint(tint)
         val size = (min(width, height) - dp(11).toInt()).coerceAtLeast(1)
         val left = (width - size) / 2

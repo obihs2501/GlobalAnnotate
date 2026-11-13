@@ -14,7 +14,7 @@ import kotlin.math.min
 /** A single round colour swatch with a selection ring. */
 class SwatchView(context: Context, val color: Int) : View(context) {
 
-    var selected: Boolean = false
+    var checked: Boolean = false
         set(value) { field = value; invalidate() }
 
     private val density = resources.displayMetrics.density
@@ -38,7 +38,7 @@ class SwatchView(context: Context, val color: Int) : View(context) {
         paint.color = Color.argb(60, 0, 0, 0)
         canvas.drawCircle(cx, cy, radius, paint)
 
-        if (selected) {
+        if (checked) {
             paint.strokeWidth = 2.5f * density
             paint.color = Color.parseColor("#0D84FF")
             canvas.drawCircle(cx, cy, min(width, height) * 0.46f, paint)
@@ -80,7 +80,7 @@ class ColorStrip(
 
     fun setColor(color: Int) {
         currentColor = color
-        swatches.forEach { it.selected = it.color == color }
+        swatches.forEach { it.checked = it.color == color }
         invalidate()
     }
 
