@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copied verbatim from Mi Canvas res/values/colors.xml (light theme). -->
+<resources>
+    <color name="penpicker_background_color">#ffffff</color>
+    <color name="penpicker_circle_button_background_color">#0f000000</color>
+    <color name="penpicker_color_picker_panel_stroke">#1a000000</color>
+    <color name="penpicker_colorpicker_text_title">#ff000000</color>
+    <color name="penpicker_dividing_line_color">#1a000000</color>
+    <color name="penpicker_eraser_hint_text_color">#66000000</color>
+    <color name="penpicker_more_item_text_color">#000000</color>
+    <color name="penpicker_pen_set_text">#cc000000</color>
+    <color name="creation_more_popwindow_line">#1a000000</color>
+    <color name="creation_split_line_color">#e7e7e7</color>
+    <color name="penpicker_transparent">#00000000</color>
+</resources>

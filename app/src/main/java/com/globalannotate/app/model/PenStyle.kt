@@ -36,6 +36,18 @@ enum class PenStyle(
     ERASER("橡皮", 4, 32, 12, 255, isEraser = true),
     ;
 
+    companion object {
+        /**
+         * Bar order reverse-engineered from Mi Canvas `PenTypeValue`:
+         * PENCIL=3, BALLPOINT=2, INK_PEN=1, MARK=4, WATER_COLOR=10, ERASER=7.
+         * HIGHLIGHTER and LASER are kept for rendering only — Mi Canvas has no
+         * such tools, so they never appear in the bar.
+         */
+        val toolbarOrder: List<PenStyle> = listOf(
+            PENCIL, BALLPOINT, INK_PEN, MARKER, WATER_COLOR, ERASER,
+        )
+    }
+
     /** Mi Canvas draws size in its own unit; this maps it to pixels. */
     fun toPixels(size: Float, density: Float): Float = size * density * 0.42f
 }

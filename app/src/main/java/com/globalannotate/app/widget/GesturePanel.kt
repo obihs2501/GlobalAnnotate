@@ -1,6 +1,8 @@
 package com.globalannotate.app.widget
 
 import android.content.Context
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -12,9 +14,13 @@ import com.globalannotate.app.GestureAction
 import com.globalannotate.app.R
 
 /**
- * Pen-barrel gesture mapping. Tapping a gesture expands the full action list
- * inline (with a check mark on the current one) so an action can be chosen
- * directly instead of cycling through them one tap at a time.
+ * Pen-barrel gesture mapping. Mi Canvas has no equivalent screen, so this
+ * follows the Miuix specification instead of the pen-picker popups:
+ *  - dialog surface: `DialogDefaults.CornerRadius` = 32dp, 320dp wide
+ *  - 24dp content padding, 56dp rows, 0.5dp `dividerLine` hairlines
+ *  - title / row / value use the Miuix title + body roles (20 / 16 / 14sp)
+ *  - muted secondary text uses the summary role (60% onSurface)
+ *  - ripple feedback, and the action list expands inline with a check mark
  */
 class GesturePanel(context: Context, private val listener: Listener) : LinearLayout(context) {
 
@@ -24,14 +30,7 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
         fun onClose()
     }
 
-    private val density = resources.displayMetrics.density
-    private val current = mutableMapOf<String, GestureAction>()
-    private val valueViews = mutableMapOf<String, TextView>()
-    private val listViews = mutableMapOf<String, LinearLayout>()
-    private val expanded = mutableSetOf<String>()
-
-    /** Only the actions that make sense from the pen barrel; the rest stay
-     *  in the toolbar so the picker stays three lines tall. */
+    /** Only the actions that make sense from the pen barrel. */
     private val shownActions = listOf(
         GestureAction.NONE,
         GestureAction.TOGGLE_OVERLAY,
@@ -48,12 +47,22 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
         "SLIDE_DOWN" to "笔身下滑",
     )
 
+    private val density = resources.displayMetrics.density
+    private val current = mutableMapOf<String, GestureAction>()
+    private val valueViews = mutableMapOf<String, TextView>()
+    private val listViews = mutableMapOf<String, LinearLayout>()
+    private val expanded = mutableSetOf<String>()
+
     init {
         orientation = VERTICAL
-        setBackgroundResource(R.drawable.bg_panel)
-        elevation = dp(8)
-        setPadding(dp(20).toInt(), dp(18).toInt(), dp(20).toInt(), dp(16).toInt())
-        layoutParams = LayoutParams(dp(288).toInt(), WRAP_CONTENT)
+        background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(32).toFloat()
+            setColor(ContextCompat.getColor(context, R.color.ga_panel_bg))
+        }
+        elevation = dp(8).toFloat()
+        setPadding(dp(24), dp(24), dp(24), dp(16))
+        layoutParams = LayoutParams(dp(320), WRAP_CONTENT)
 
         addView(TextView(context).apply {
             text = "笔身手势"
@@ -61,7 +70,7 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
             includeFontPadding = false
             setTextColor(ContextCompat.getColor(context, R.color.ga_text_title))
         }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
-            bottomMargin = dp(4).toInt()
+            bottomMargin = dp(8)
         })
 
         for ((key, label) in gestures) addGestureRow(key, label)
@@ -75,17 +84,17 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
         }
     }
 
-
     private fun addGestureRow(key: String, label: String) {
         val header = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             isClickable = true
-            setPadding(0, dp(12).toInt(), 0, dp(12).toInt())
+            setPadding(0, dp(16), 0, dp(16))
+            foreground = Ripple.rounded(context, dp(16).toFloat())
         }
         header.addView(TextView(context).apply {
             text = label
-            textSize = 14f
+            textSize = 16f
             includeFontPadding = false
             setTextColor(ContextCompat.getColor(context, R.color.ga_text_primary))
             layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
@@ -94,7 +103,7 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
             text = labelOf(current[key] ?: GestureAction.NONE)
             textSize = 14f
             includeFontPadding = false
-            setTextColor(ContextCompat.getColor(context, R.color.ga_accent))
+            setTextColor(ContextCompat.getColor(context, R.color.ga_text_hint))
         }
         header.addView(value)
         valueViews[key] = value
@@ -103,24 +112,19 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
             orientation = VERTICAL
             visibility = View.GONE
         }
-        for (action in shownActions) {
-            list.addView(actionRow(key, action))
-        }
+        for (action in shownActions) list.addView(actionRow(key, action))
         listViews[key] = list
 
         header.setOnClickListener {
             val show = !expanded.contains(key)
             if (show) expanded.add(key) else expanded.remove(key)
             list.visibility = if (show) View.VISIBLE else View.GONE
-            // the popup must grow/shrink to fit the expanded list
             listener.onExpandedChanged()
         }
 
         addView(header, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         addView(list, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-        addView(View(context).apply {
-            setBackgroundColor(ContextCompat.getColor(context, R.color.ga_divider))
-        }, LinearLayout.LayoutParams(MATCH_PARENT, 1))
+        addView(hairline(), LinearLayout.LayoutParams(MATCH_PARENT, 1))
     }
 
     private fun actionRow(gesture: String, action: GestureAction): View {
@@ -128,14 +132,8 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             isClickable = true
-            setPadding(dp(12).toInt(), dp(8).toInt(), dp(4).toInt(), dp(8).toInt())
-        }
-        val name = TextView(context).apply {
-            text = labelOf(action)
-            textSize = 14f
-            includeFontPadding = false
-            setTextColor(ContextCompat.getColor(context, R.color.ga_text_primary))
-            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
+            setPadding(dp(12), dp(12), dp(4), dp(12))
+            foreground = Ripple.rounded(context, dp(12).toFloat())
         }
         val check = TextView(context).apply {
             text = ""
@@ -143,7 +141,13 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
             setTextColor(ContextCompat.getColor(context, R.color.ga_accent))
             tag = action
         }
-        row.addView(name)
+        row.addView(TextView(context).apply {
+            text = labelOf(action)
+            textSize = 16f
+            includeFontPadding = false
+            setTextColor(ContextCompat.getColor(context, R.color.ga_text_primary))
+            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
+        })
         row.addView(check)
         row.setOnClickListener {
             current[gesture] = action
@@ -165,9 +169,13 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
         }
     }
 
+    private fun hairline(): View = View(context).apply {
+        setBackgroundColor(ContextCompat.getColor(context, R.color.ga_divider))
+    }
+
     private fun labelOf(action: GestureAction): String = when (action) {
         GestureAction.NONE -> "无"
-        GestureAction.TOGGLE_OVERLAY -> "显示/收起批注"
+        GestureAction.TOGGLE_OVERLAY -> "显示 / 收起批注"
         GestureAction.TOGGLE_ERASER -> "笔 ↔ 橡皮"
         GestureAction.CYCLE_TOOL -> "切换笔刷"
         GestureAction.UNDO -> "撤销"
@@ -180,5 +188,5 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
         GestureAction.CYCLE_COLOR -> "切换颜色"
     }
 
-    private fun dp(value: Int): Float = value * density
+    private fun dp(value: Int): Int = (value * density).toInt()
 }

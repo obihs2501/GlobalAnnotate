@@ -1,19 +1,17 @@
 package com.globalannotate.app.widget
 
 import android.content.Context
-import android.graphics.drawable.GradientDrawable
-import android.view.Gravity
+import android.view.LayoutInflater
 import android.view.View
-import android.view.ViewGroup.LayoutParams.MATCH_PARENT
-import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.content.ContextCompat
 import com.globalannotate.app.R
 
 /**
- * The ⋮ popup. Exit is intentionally NOT here — it lives on its own back button
- * so a mis-tap can never quit instead of exporting.
+ * The ⋮ menu, built from Mi Canvas `penpicker_more_action_view`: a 200dp,
+ * 24dp-radius card with an action list, a hairline, then the checkable list.
+ * Rows come from `more_action_item_view` / `more_action_checked_item_view`.
  */
 class MoreMenu(context: Context, private val listener: Listener) : LinearLayout(context) {
 
@@ -25,91 +23,60 @@ class MoreMenu(context: Context, private val listener: Listener) : LinearLayout(
         fun onSavePng()
         fun onSavePdf()
         fun onClear()
+        fun onClose()
     }
 
-    private val density = resources.displayMetrics.density
+    private val itemList: LinearLayout
+    private val checkedList: LinearLayout
 
     init {
         orientation = VERTICAL
-        setBackgroundResource(R.drawable.bg_menu)
-        elevation = dp(8)
-        setPadding(dp(8).toInt(), dp(10).toInt(), dp(8).toInt(), dp(10).toInt())
-        layoutParams = LayoutParams(dp(200).toInt(), WRAP_CONTENT)
+        LayoutInflater.from(context).inflate(R.layout.penpicker_more_action_view, this, true)
+        itemList = findViewById(R.id.more_action_item_list)
+        checkedList = findViewById(R.id.more_action_checked_item_list)
 
-        row("笔身手势", R.drawable.ic_pressure) { listener.onGestureSettings() }
-        separator()
-        checkRow("自动最小化", true) { listener.onAutoMinimize(it) }
-        checkRow("用手指涂画", false) { listener.onFingerDraw(it) }
-        separator()
-        row("切换批注模式", R.drawable.ic_layers) { listener.onCycleMode() }
-        row("导出 PNG", R.drawable.ic_image) { listener.onSavePng() }
-        row("导出 PDF", R.drawable.ic_pdf) { listener.onSavePdf() }
-        row("清空画布", R.drawable.ic_trash) { listener.onClear() }
+        item("笔身手势", R.drawable.ic_pressure) { listener.onGestureSettings() }
+        item("导出 PNG", R.drawable.ic_image) { listener.onSavePng() }
+        item("导出 PDF", R.drawable.ic_pdf) { listener.onSavePdf() }
+        item("清空画布", R.drawable.ic_trash) { listener.onClear() }
+
+        check("自动最小化", true) { listener.onAutoMinimize(it) }
+        check("用手指涂画", false) { listener.onFingerDraw(it) }
     }
 
-    private fun row(text: String, icon: Int, click: () -> Unit) {
-        val r = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12).toInt(), dp(14).toInt(), dp(12).toInt(), dp(14).toInt())
-            isClickable = true
-            foreground = Ripple.rounded(context, dp(12))
-            setOnClickListener { click() }
-        }
-        r.addView(IconButton(context).apply {
-            iconRes = icon
-            layoutParams = LinearLayout.LayoutParams(dp(24).toInt(), dp(24).toInt())
-        })
-        r.addView(TextView(context).apply {
-            this.text = text
-            textSize = 16f
-            includeFontPadding = false
-            setTextColor(ContextCompat.getColor(context, R.color.ga_text_primary))
-            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply {
-                marginStart = dp(14).toInt()
-            }
-        })
-        addView(r, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+    private fun item(text: String, icon: Int, click: () -> Unit) {
+        val row = LayoutInflater.from(context).inflate(R.layout.more_action_item_view, itemList, false)
+        row.findViewById<ImageView>(R.id.more_action_icon).setImageResource(icon)
+        row.findViewById<TextView>(R.id.more_action_text).text = text
+        row.setBackgroundResource(R.drawable.penpicker_more_item_press_bg)
+        row.setOnClickListener { click() }
+        itemList.addView(row)
     }
 
-    private fun checkRow(text: String, initial: Boolean, change: (Boolean) -> Unit) {
+    private fun check(text: String, initial: Boolean, change: (Boolean) -> Unit) {
         var enabled = initial
-        val r = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12).toInt(), dp(14).toInt(), dp(12).toInt(), dp(14).toInt())
-            isClickable = true
-        }
-        r.addView(TextView(context).apply {
-            this.text = text
-            textSize = 16f
-            includeFontPadding = false
-            setTextColor(ContextCompat.getColor(context, R.color.ga_text_primary))
-            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
-        })
-        val check = TextView(context).apply {
-            this.text = if (enabled) "✓" else ""
-            textSize = 16f
-            setTextColor(ContextCompat.getColor(context, R.color.ga_accent))
-        }
-        r.addView(check)
-        r.setOnClickListener {
+        val row = LayoutInflater.from(context)
+            .inflate(R.layout.more_action_checked_item_view, checkedList, false)
+        val label = row.findViewById<TextView>(R.id.more_action_checked_item_text)
+        val mark = row.findViewById<ImageView>(R.id.more_action_checked_item_icon)
+        label.text = text
+        mark.visibility = if (enabled) View.VISIBLE else View.INVISIBLE
+        row.setBackgroundResource(R.drawable.penpicker_more_item_press_bg)
+        row.setOnClickListener {
             enabled = !enabled
-            check.text = if (enabled) "✓" else ""
+            mark.visibility = if (enabled) View.VISIBLE else View.INVISIBLE
             change(enabled)
         }
-        addView(r, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        checkedList.addView(row)
     }
 
-    private fun separator() {
-        addView(
-            View(context).apply { setBackgroundColor(ContextCompat.getColor(context, R.color.ga_divider)) },
-            LinearLayout.LayoutParams(MATCH_PARENT, 1).apply {
-                topMargin = dp(6).toInt()
-                bottomMargin = dp(6).toInt()
-            },
-        )
+    /** Reflect the service state when the menu is shown. */
+    fun setChecks(autoMinimize: Boolean, fingerDraw: Boolean) {
+        (checkedList.getChildAt(0)
+            ?.findViewById<ImageView>(R.id.more_action_checked_item_icon))?.visibility =
+            if (autoMinimize) View.VISIBLE else View.INVISIBLE
+        (checkedList.getChildAt(1)
+            ?.findViewById<ImageView>(R.id.more_action_checked_item_icon))?.visibility =
+            if (fingerDraw) View.VISIBLE else View.INVISIBLE
     }
-
-    private fun dp(value: Int): Float = value * density
 }

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copied verbatim from Mi Canvas res/values-night/colors.xml. -->
+<resources>
+    <color name="penpicker_background_color">#242424</color>
+    <color name="penpicker_circle_button_background_color">#1effffff</color>
+    <color name="penpicker_colorpicker_text_title">#ffffffff</color>
+    <color name="penpicker_dividing_line_color">#33ffffff</color>
+    <color name="penpicker_eraser_hint_text_color">#7fffffff</color>
+    <color name="penpicker_more_item_text_color">#ccffffff</color>
+    <color name="penpicker_pen_set_text">#ccffffff</color>
+    <color name="creation_more_popwindow_line">#1affffff</color>
+    <color name="creation_split_line_color">#3d3d3d</color>
+</resources>

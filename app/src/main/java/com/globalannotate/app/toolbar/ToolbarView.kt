@@ -57,10 +57,8 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
     private val redoButton: IconButton
     private lateinit var moreAnchor: View
 
-    private val styles = listOf(
-        PenStyle.PENCIL, PenStyle.BALLPOINT, PenStyle.INK_PEN, PenStyle.MARKER,
-        PenStyle.HIGHLIGHTER, PenStyle.WATER_COLOR, PenStyle.LASER, PenStyle.ERASER,
-    )
+    /** The six tools Mi Canvas actually exposes: PenTypeValue 3/2/1/4/10/7. */
+    private val styles = PenStyle.toolbarOrder
 
     init {
         orientation = VERTICAL

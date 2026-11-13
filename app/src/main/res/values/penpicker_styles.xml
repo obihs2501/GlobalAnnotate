@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copied from Mi Canvas res/values/styles.xml. MiSans Medium is the HyperOS
+     system family; sans-serif-medium resolves to it on device. -->
+<resources>
+    <style name="penpicker_pen_set" parent="">
+        <item name="android:textSize">@dimen/penpicker_pen_set_size</item>
+        <item name="android:textColor">@color/penpicker_pen_set_text</item>
+        <item name="android:layout_width">-2</item>
+        <item name="android:layout_height">-2</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:letterSpacing">0</item>
+        <item name="android:textFontWeight">500</item>
+    </style>
+
+    <style name="penpicker_colorpicker_title" parent="">
+        <item name="android:textSize">@dimen/penpicker_colorpicker_size_title</item>
+        <item name="android:textColor">@color/penpicker_colorpicker_text_title</item>
+        <item name="android:layout_width">-2</item>
+        <item name="android:layout_height">-2</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:letterSpacing">0</item>
+        <item name="android:textFontWeight">380</item>
+    </style>
+
+    <style name="penpicker_more_action_item" parent="">
+        <item name="android:textSize">16sp</item>
+        <item name="android:textColor">@color/penpicker_more_item_text_color</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:layout_width">-1</item>
+        <item name="android:layout_height">-2</item>
+        <item name="android:minHeight">21dp</item>
+        <item name="android:maxLines">5</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:letterSpacing">0</item>
+    </style>
+</resources>

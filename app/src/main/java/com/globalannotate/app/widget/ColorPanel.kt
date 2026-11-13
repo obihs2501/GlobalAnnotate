@@ -1,27 +1,29 @@
 package com.globalannotate.app.widget
 
 import android.content.Context
-import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.RectF
-import android.graphics.drawable.GradientDrawable
-import android.view.Gravity
+import android.view.LayoutInflater
 import android.view.View
-import android.view.ViewGroup.LayoutParams.MATCH_PARENT
-import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import com.globalannotate.app.R
 import com.globalannotate.app.model.BrushConfig
+import com.globalannotate.app.penpicker.ColorPickPanelView
+import com.globalannotate.app.penpicker.ColorPickerAlphaView
+import com.globalannotate.app.penpicker.ColorPickerHueView
+import com.globalannotate.app.penpicker.ColorPickerLightnessView
+import com.globalannotate.app.penpicker.ColorPickerSaturationView
+import com.globalannotate.app.penpicker.FilterSortView
+import com.globalannotate.app.penpicker.PickerStrawTool
 
 /**
- * Colour popup, structure copied from Mi Canvas
- * `penpicker_popup_color_picker.xml`: 20dp title row with a 44dp straw button,
- * a FilterSortView tab pair, 330x230 grid, then the alpha slider with a
- * checkerboard and a current-colour block plus quick swatches.
- * Popup size 360x571dp with 36dp corners, per penpicker dimens.
+ * Colour popup. Every dimension comes from the ported Mi Canvas layouts:
+ * `penpicker_popup_color_picker` (360x571, title + straw, FilterSortView tabs,
+ * pager, 72dp display block and two recent-colour rows), plus the grid and
+ * slider pages.
  */
 class ColorPanel(context: Context, private val listener: Listener) : LinearLayout(context) {
 
@@ -33,224 +35,134 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
     }
 
     private val density = resources.displayMetrics.density
-    private val grid: HueGrid
-    private val opacityBar: TrackSlider
-    private val chip: ColorChip
-    private val gridTab: TextView
-    private val sliderTab: TextView
-    private val gridContainer: LinearLayout
-    private val opacityValue: TextView
-    private val quickSwatches = mutableListOf<SwatchView>()
+    private val root: View
+    private val tabs: FilterSortView
+    private val pager: FrameLayout
+    private val gridPage: View
+    private val sliderPage: View
+    private val grid: ColorPickPanelView
+    private val display: ImageView
+    private val gridAlpha: ColorPickerAlphaView
+    private val hueBar: ColorPickerHueView
+    private val satBar: ColorPickerSaturationView
+    private val lightBar: ColorPickerLightnessView
+    private val sliderAlpha: ColorPickerAlphaView
+    private val alphaLabel: TextView
+    private val swatchRows = mutableListOf<LinearLayout>()
 
-    var color: Int = Color.parseColor("#D93025")
+    private var hsv = floatArrayOf(0f, 0.75f, 0.85f)
+    private var alpha = 255
+
+    var color: Int
+        get() = Color.HSVToColor(alpha, hsv)
         set(value) {
-            field = value
-            grid.selectedColor = value
-            chip.color = value
-            opacityBar.gradientTo = value
-            opacityBar.invalidate()
-            quickSwatches.forEach { it.checked = it.color == value }
+            val a = Color.alpha(value)
+            if (a != 0) alpha = a
+            Color.colorToHSV(value, hsv)
+            syncFromState()
         }
 
-    var opacity: Int = 255
+    var opacity: Int
+        get() = alpha
         set(value) {
-            field = value
-            opacityBar.progress = value / 255f
-            opacityValue.text = "${value * 100 / 255}%"
+            alpha = value.coerceIn(0, 255)
+            syncFromState()
         }
 
     init {
         orientation = VERTICAL
-        setBackgroundResource(R.drawable.bg_panel)
-        elevation = dp(8)
-        layoutParams = LayoutParams(dp(360).toInt(), WRAP_CONTENT)
+        LayoutInflater.from(context).inflate(R.layout.penpicker_popup_color_picker, this, true)
+        root = findViewById(R.id.ll_root)
+        tabs = findViewById(R.id.penpicker_popup_tab)
+        pager = findViewById(R.id.penpicker_custom_view_pager)
+        display = findViewById(R.id.penpicker_display_block)
 
-        // Title row: 20dp top/bottom margin, straw button aligned to the end.
-        val titleRow = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(20).toInt(), dp(20).toInt(), dp(20).toInt(), dp(12).toInt())
-        }
-        titleRow.addView(TextView(context).apply {
-            text = "颜色"
-            textSize = 20f
-            includeFontPadding = false
-            gravity = Gravity.CENTER
-            setTextColor(ContextCompat.getColor(context, R.color.ga_text_title))
-            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
-        })
-        titleRow.addView(IconButton(context).apply {
-            iconRes = R.drawable.ic_pipette
-            onTap = { listener.onPipette() }
-            layoutParams = LinearLayout.LayoutParams(dp(44).toInt(), dp(44).toInt())
-        })
-        addView(titleRow, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        gridPage = LayoutInflater.from(context)
+            .inflate(R.layout.penpicker_popup_color_picker_grid, pager, false)
+        sliderPage = LayoutInflater.from(context)
+            .inflate(R.layout.penpicker_popup_color_picker_slider, pager, false)
+        pager.addView(gridPage)
+        pager.addView(sliderPage)
+        sliderPage.visibility = View.GONE
 
-        // Tabs
-        val tabRow = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = GradientDrawable().apply {
-                setColor(ContextCompat.getColor(context, R.color.ga_tab_bg))
-                cornerRadius = dp(20)
-            }
-            setPadding(dp(3).toInt(), dp(3).toInt(), dp(3).toInt(), dp(3).toInt())
-        }
-        gridTab = tab("网格取色", true) { selectTab(true) }
-        sliderTab = tab("滑块取色", false) { selectTab(false) }
-        tabRow.addView(gridTab)
-        tabRow.addView(sliderTab)
-        addView(tabRow, LinearLayout.LayoutParams(MATCH_PARENT, dp(40).toInt()).apply {
-            leftMargin = dp(20).toInt()
-            rightMargin = dp(20).toInt()
-        })
+        grid = gridPage.findViewById(R.id.penpicker_color_picker_panel)
+        gridAlpha = gridPage.findViewById(R.id.grid_alpha_seek_bar)
+        alphaLabel = gridPage.findViewById(R.id.grid_alpha_progress)
+        hueBar = sliderPage.findViewById(R.id.slider_hue)
+        satBar = sliderPage.findViewById(R.id.slider_saturation)
+        lightBar = sliderPage.findViewById(R.id.slider_lightness)
+        sliderAlpha = sliderPage.findViewById(R.id.slider_alpha_seek_bar)
 
-        addView(bodyText("色相").apply {
-            setPadding(dp(25).toInt(), dp(16).toInt(), 0, 0)
-        }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
+        findViewById<PickerStrawTool>(R.id.penpicker_btn_straw).onTap = { listener.onPipette() }
+        findViewById<TextView>(R.id.tv_title)
 
-        gridContainer = LinearLayout(context).apply { orientation = VERTICAL }
-        grid = HueGrid(context) { picked ->
-            color = picked
-            listener.onColor(Color.argb(opacity, Color.red(picked), Color.green(picked), Color.blue(picked)))
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(dp(330).toInt(), dp(230).toInt()).apply {
-                topMargin = dp(3).toInt()
-            }
+        tabs.onTabSelected = { index ->
+            gridPage.visibility = if (index == 0) View.VISIBLE else View.GONE
+            sliderPage.visibility = if (index == 1) View.VISIBLE else View.GONE
         }
-        gridContainer.addView(grid, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
-            leftMargin = dp(15).toInt()
-        })
-        addView(gridContainer, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
 
-        // Opacity
-        val opacityRow = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(20).toInt(), dp(16).toInt(), dp(20).toInt(), 0)
+        grid.onColorPicked = { picked ->
+            Color.colorToHSV(picked, hsv)
+            emitColor()
         }
-        opacityRow.addView(bodyText("不透明度").apply {
-            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
-        })
-        opacityValue = bodyText("100%")
-        opacityRow.addView(opacityValue)
-        addView(opacityRow, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        gridAlpha.onProgress = { p -> alpha = (p * 255).toInt(); emitColor(); listener.onOpacity(alpha) }
+        hueBar.onProgress = { p -> hsv[0] = p * 360f; emitColor() }
+        satBar.onProgress = { p -> hsv[1] = p; emitColor() }
+        lightBar.onProgress = { p -> hsv[2] = p; emitColor() }
+        sliderAlpha.onProgress = { p -> alpha = (p * 255).toInt(); emitColor(); listener.onOpacity(alpha) }
 
-        opacityBar = TrackSlider(context).apply {
-            checkered = true
-            knobFilled = true
-            gradientFrom = Color.TRANSPARENT
-            gradientTo = color
-            progress = 1f
-            onProgress = { p ->
-                opacity = (p * 255f).toInt().coerceIn(0, 255)
-                listener.onOpacity(opacity)
-            }
-        }
-        addView(opacityBar, LinearLayout.LayoutParams(MATCH_PARENT, dp(28).toInt()).apply {
-            topMargin = dp(8).toInt()
-            leftMargin = dp(20).toInt()
-            rightMargin = dp(20).toInt()
-        })
+        bindRecentColors()
+        syncFromState()
+    }
 
-        // Current colour block + quick swatches
-        val bottom = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(20).toInt(), dp(28).toInt(), dp(20).toInt(), dp(20).toInt())
-        }
-        chip = ColorChip(context, color).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(72).toInt(), dp(72).toInt())
-        }
-        bottom.addView(chip)
-
-        // Two rows of recent colours, 16dp apart (Mi Canvas recent_color_list_1/2).
-        val swatchColumn = LinearLayout(context).apply {
-            orientation = VERTICAL
-            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
-                marginStart = dp(16).toInt()
-            }
-        }
+    private fun bindRecentColors() {
+        val rows = listOf(
+            findViewById<LinearLayout>(R.id.penpicker_recent_color_list_1),
+            findViewById<LinearLayout>(R.id.penpicker_recent_color_list_2),
+        )
         val recent = BrushConfig.PALETTE.take(8)
-        for (row in 0..1) {
-            val line = LinearLayout(context).apply {
-                orientation = HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-            }
+        rows.forEachIndexed { rowIndex, row ->
+            swatchRows.add(row)
             for (i in 0..3) {
-                val c = recent[row * 4 + i]
+                val c = recent[rowIndex * 4 + i]
                 val swatch = SwatchView(context, c).apply {
-                    checked = c == color
-                    setOnClickListener {
-                        this@ColorPanel.color = c
-                        listener.onColor(Color.argb(opacity, Color.red(c), Color.green(c), Color.blue(c)))
+                    layoutParams = LinearLayout.LayoutParams(dp(36), dp(36)).apply {
+                        if (i > 0) marginStart = dp(12)
                     }
-                    layoutParams = LinearLayout.LayoutParams(dp(36).toInt(), dp(36).toInt()).apply {
-                        if (i > 0) marginStart = dp(12).toInt()
+                    setOnClickListener {
+                        Color.colorToHSV(c, hsv)
+                        emitColor()
                     }
                 }
-                quickSwatches.add(swatch)
-                line.addView(swatch)
+                row.addView(swatch)
             }
-            swatchColumn.addView(line, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
-                if (row > 0) topMargin = dp(16).toInt()
-            })
-        }
-        bottom.addView(swatchColumn)
-        addView(bottom, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
-            topMargin = dp(16).toInt()
-        })
-    }
-
-
-    private fun selectTab(gridSelected: Boolean) {
-        gridTab.setTabSelected(gridSelected)
-        sliderTab.setTabSelected(!gridSelected)
-        gridContainer.visibility = if (gridSelected) VISIBLE else GONE
-    }
-
-    private fun tab(text: String, selected: Boolean, click: () -> Unit): TextView =
-        TextView(context).apply {
-            this.text = text
-            textSize = 14f
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(0, MATCH_PARENT, 1f)
-            setOnClickListener { click() }
-            setTabSelected(selected)
-        }
-
-    private fun TextView.setTabSelected(selected: Boolean) {
-        background = GradientDrawable().apply {
-            setColor(
-                if (selected) ContextCompat.getColor(context, R.color.ga_tab_selected)
-                else Color.TRANSPARENT,
-            )
-            cornerRadius = dp(17)
-        }
-        setTextColor(
-            ContextCompat.getColor(
-                context,
-                if (selected) R.color.ga_text_title else R.color.ga_text_primary,
-            ),
-        )
-    }
-
-    private fun bodyText(text: String): TextView = TextView(context).apply {
-        this.text = text
-        textSize = 14f
-        includeFontPadding = false
-        setTextColor(ContextCompat.getColor(context, R.color.ga_text_primary))
-    }
-
-    private fun dp(value: Int): Float = value * density
-
-    private class ColorChip(context: Context, var color: Int) : View(context) {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val rect = RectF()
-        override fun onDraw(canvas: Canvas) {
-            paint.color = color
-            rect.set(0f, 0f, width.toFloat(), height.toFloat())
-            canvas.drawRoundRect(rect, width * 0.18f, width * 0.18f, paint)
         }
     }
+
+    private fun emitColor() {
+        val argb = Color.HSVToColor(alpha, hsv)
+        syncViews(argb)
+        listener.onColor(argb)
+    }
+
+    private fun syncFromState() {
+        syncViews(Color.HSVToColor(alpha, hsv))
+    }
+
+    private fun syncViews(argb: Int) {
+        display.setBackgroundColor(argb)
+        grid.selectedColor = Color.rgb(Color.red(argb), Color.green(argb), Color.blue(argb))
+        gridAlpha.progress = alpha / 255f
+        gridAlpha.baseColor = Color.rgb(Color.red(argb), Color.green(argb), Color.blue(argb))
+        sliderAlpha.progress = alpha / 255f
+        sliderAlpha.baseColor = Color.rgb(Color.red(argb), Color.green(argb), Color.blue(argb))
+        hueBar.progress = hsv[0] / 360f
+        satBar.baseColor = Color.HSVToColor(floatArrayOf(hsv[0], 1f, hsv[2]))
+        satBar.progress = hsv[1]
+        lightBar.baseColor = Color.HSVToColor(floatArrayOf(hsv[0], hsv[1], 1f))
+        lightBar.progress = hsv[2]
+        if (::alphaLabel.isInitialized) alphaLabel.text = "${(alpha * 100 / 255)}%"
+    }
+
+    private fun dp(value: Int): Int = (value * density).toInt()
 }

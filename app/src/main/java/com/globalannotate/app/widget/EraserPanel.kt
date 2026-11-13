@@ -1,26 +1,28 @@
 package com.globalannotate.app.widget
 
 import android.content.Context
-import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
+import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.content.ContextCompat
 import com.globalannotate.app.R
 import com.globalannotate.app.model.BrushConfig
 import com.globalannotate.app.model.EraserMode
 import com.globalannotate.app.model.PenStyle
+import com.globalannotate.app.penpicker.FilterSortView
+import com.globalannotate.app.penpicker.SelectPropertyView
 
 /**
- * Eraser popup, structure copied from Mi Canvas
- * `penpicker_popup_layout_eraser_set.xml`: FilterSortView tabs on top, then the
- * content area, 20dp horizontal padding. Only the two tabs (像素 / 笔画) and a
- * single size slider (4..32) — no sensitivity, no opacity.
+ * Eraser popup using Mi Canvas `penpicker_popup_layout_eraser_set` unchanged:
+ * 20dp padding, a FilterSortView with two tabs, the content frame, and the
+ * "stroke eraser needs no thickness" hint. Size slider is 4..32 like the APK.
  */
-class EraserPanel(context: Context, private val listener: Listener) : LinearLayout(context) {
+class EraserPanel(context: Context, private val listener: Listener) :
+    LinearLayout(context) {
 
     interface Listener {
         fun onMode(mode: EraserMode)
@@ -29,134 +31,63 @@ class EraserPanel(context: Context, private val listener: Listener) : LinearLayo
     }
 
     private val density = resources.displayMetrics.density
-    private val pixelTab: TextView
-    private val strokeTab: TextView
-    private val sizeSlider: TrackSlider
+    private val tabs: FilterSortView
+    private val content: FrameLayout
+    private val hint: TextView
+    private val sizeRow: LinearLayout
     private val sizeValue: TextView
-    private lateinit var hint: TextView
+    private val slider: SelectPropertyView
 
     var brush: BrushConfig = BrushConfig()
         set(value) { field = value; sync(value) }
 
     init {
         orientation = VERTICAL
-        setBackgroundResource(R.drawable.bg_panel)
-        elevation = dp(8)
-        setPadding(dp(20).toInt(), dp(20).toInt(), dp(20).toInt(), dp(16).toInt())
-        layoutParams = LayoutParams(dp(288).toInt(), WRAP_CONTENT)
+        LayoutInflater.from(context).inflate(R.layout.penpicker_popup_layout_eraser_set, this, true)
+        tabs = findViewById(R.id.penpicker_filterSortView)
+        content = findViewById(R.id.penpicker_eraser_content)
+        hint = findViewById(R.id.penpicker_eraser_stroke_hint)
 
-        val tabRow = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            background = GradientDrawable().apply {
-                setColor(ContextCompat.getColor(context, R.color.ga_tab_bg))
-                cornerRadius = dp(20)
-            }
-            setPadding(dp(3).toInt(), dp(3).toInt(), dp(3).toInt(), dp(3).toInt())
-        }
-        pixelTab = tab("像素橡皮") { listener.onMode(EraserMode.PIXEL) }
-        strokeTab = tab("笔画橡皮") { listener.onMode(EraserMode.STROKE) }
-        tabRow.addView(pixelTab)
-        tabRow.addView(strokeTab)
-        addView(tabRow, LinearLayout.LayoutParams(MATCH_PARENT, dp(40).toInt()))
-
-        val sizeHead = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        sizeHead.addView(bodyText("大小").apply {
-            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
-        })
-        sizeValue = bodyText("")
-        sizeHead.addView(sizeValue)
-        addView(sizeHead, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
-            topMargin = dp(18).toInt()
-        })
-
-        sizeSlider = TrackSlider(context).apply {
-            onProgress = { p ->
-                val style = PenStyle.ERASER
-                val size = (style.minSize + p * (style.maxSize - style.minSize)).toInt()
-                sizeValue.text = size.toString()
-                listener.onSize(size.toFloat())
-            }
-            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, dp(26).toInt())
-        }
-        addView(sizeSlider, LinearLayout.LayoutParams(MATCH_PARENT, dp(28).toInt()).apply {
-            topMargin = dp(8).toInt()
-        })
-
-        // Stroke eraser has no size, exactly like Mi Canvas: a centred hint
-        // replaces the slider (pk_eraser_stroke_hint, 31dp / 25dp margins).
-        hint = TextView(context).apply {
-            text = "笔画橡皮无需调整粗细"
-            textSize = 14f
-            includeFontPadding = false
+        val pixelTab = FilterSortView.TabView(context).apply {
+            text = "像素橡皮"
             gravity = Gravity.CENTER
-            setTextColor(ContextCompat.getColor(context, R.color.ga_text_hint))
-            visibility = GONE
-            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
-                topMargin = dp(31).toInt()
-                bottomMargin = dp(25).toInt()
-            }
+            layoutParams = LinearLayout.LayoutParams(0, MATCH_PARENT, 1f)
         }
-        addView(hint)
+        val strokeTab = FilterSortView.TabView(context).apply {
+            text = "笔画橡皮"
+            gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(0, MATCH_PARENT, 1f)
+        }
+        tabs.addView(pixelTab)
+        tabs.addView(strokeTab)
+        tabs.onTabSelected = { index ->
+            listener.onMode(if (index == 0) EraserMode.PIXEL else EraserMode.STROKE)
+        }
+
+        // Size row mirrors penpicker_layout_pen_property_item: label + value, bar below.
+        val row = LayoutInflater.from(context)
+            .inflate(R.layout.penpicker_layout_pen_property_item, content, false)
+        sizeRow = row as LinearLayout
+        row.findViewById<TextView>(R.id.penpicker_property_title).text = "大小"
+        sizeValue = row.findViewById(R.id.penpicker_property_value)
+        slider = row.findViewById(R.id.pk_property_seekbar)
+        slider.onProgress = { p ->
+            val style = PenStyle.ERASER
+            val size = (style.minSize + p * (style.maxSize - style.minSize)).toInt()
+            sizeValue.text = size.toString()
+            listener.onSize(size.toFloat())
+        }
+        content.addView(row, FrameLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
     }
 
     private fun sync(brush: BrushConfig) {
         val style = PenStyle.ERASER
         val span = (style.maxSize - style.minSize).coerceAtLeast(1)
-        sizeSlider.progress = ((brush.eraserSize - style.minSize) / span.toFloat()).coerceIn(0f, 1f)
+        slider.progress = ((brush.eraserSize - style.minSize) / span.toFloat()).coerceIn(0f, 1f)
         sizeValue.text = brush.eraserSize.toInt().toString()
-        selectTab(brush.eraserMode)
+        tabs.selectedIndex = if (brush.eraserMode == EraserMode.STROKE) 1 else 0
         val stroke = brush.eraserMode == EraserMode.STROKE
-        hint.visibility = if (stroke) VISIBLE else GONE
-        sizeSlider.visibility = if (stroke) GONE else VISIBLE
+        hint.visibility = if (stroke) View.VISIBLE else View.GONE
+        sizeRow.visibility = if (stroke) View.GONE else View.VISIBLE
     }
-
-    private fun selectTab(mode: EraserMode) {
-        pixelTab.setTabSelected(mode == EraserMode.PIXEL)
-        strokeTab.setTabSelected(mode == EraserMode.STROKE)
-        if (::hint.isInitialized) {
-            val stroke = mode == EraserMode.STROKE
-            hint.visibility = if (stroke) VISIBLE else GONE
-            sizeSlider.visibility = if (stroke) GONE else VISIBLE
-        }
-    }
-
-    private fun tab(text: String, click: () -> Unit): TextView =
-        TextView(context).apply {
-            this.text = text
-            textSize = 14f
-            gravity = Gravity.CENTER
-            setTextColor(ContextCompat.getColor(context, R.color.ga_text_primary))
-            layoutParams = LinearLayout.LayoutParams(0, MATCH_PARENT, 1f)
-            setOnClickListener { click() }
-            setTabSelected(false)
-        }
-
-    private fun TextView.setTabSelected(selected: Boolean) {
-        background = GradientDrawable().apply {
-            setColor(
-                if (selected) ContextCompat.getColor(context, R.color.ga_tab_selected)
-                else Color.TRANSPARENT,
-            )
-            cornerRadius = dp(17)
-        }
-        setTextColor(
-            ContextCompat.getColor(
-                context,
-                if (selected) R.color.ga_text_title else R.color.ga_text_primary,
-            ),
-        )
-    }
-
-    private fun bodyText(text: String): TextView = TextView(context).apply {
-        this.text = text
-        textSize = 14f
-        setTextColor(ContextCompat.getColor(context, R.color.ga_text_primary))
-        includeFontPadding = false
-    }
-
-    private fun dp(value: Int): Float = value * density
 }

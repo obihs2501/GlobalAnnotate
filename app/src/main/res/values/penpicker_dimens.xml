@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copied verbatim from Mi Canvas (com.miui.creation) res/values/dimens.xml.
+     Do not round or "tidy" these numbers: they are the original design. -->
+<resources>
+    <dimen name="penpicker_pen_set_popup_window_width">288dp</dimen>
+    <dimen name="penpicker_small_popup_window_width">288dp</dimen>
+    <dimen name="penpicker_common_edit_popup_window_width">200dp</dimen>
+    <dimen name="penpicker_color_picker_popup_width">360dp</dimen>
+    <dimen name="penpicker_color_picker_popup_view_page_margin_start_end">20dp</dimen>
+    <dimen name="penpicker_color_picker_popup_picker_display_width_height">72dp</dimen>
+    <dimen name="penpicker_color_picker_background_radius">36dp</dimen>
+    <dimen name="penpicker_color_picker_panel_stroke">0.5dp</dimen>
+    <dimen name="penpicker_color_picker_panel_view_corner_radius">16dp</dimen>
+    <dimen name="penpicker_more_action_background_radius">24dp</dimen>
+    <dimen name="penpicker_popup_gap">8dp</dimen>
+    <dimen name="penpicker_popup_safe_margin">16dp</dimen>
+    <dimen name="penpicker_pen_set_size">14sp</dimen>
+    <dimen name="penpicker_colorpicker_size_title">20sp</dimen>
+    <dimen name="penpicker_seekbar_thumb_radius">28dp</dimen>
+    <dimen name="pk_pen_set_margin_horizontal">20dp</dimen>
+    <dimen name="pk_pen_set_preview_image_height">110dp</dimen>
+    <dimen name="pk_color_picker_popup_height">571dp</dimen>
+    <dimen name="pk_color_picker_view_page_slider_width">320dp</dimen>
+    <dimen name="pk_color_picker_view_page_slider_margin_start">5dp</dimen>
+    <dimen name="pk_color_picker_view_page_slider_seek_bar_height">28dp</dimen>
+    <dimen name="pk_color_picker_view_page_slider_seek_bar_margin_top">8dp</dimen>
+    <dimen name="pk_color_picker_view_page_slider_text_margin_top">24dp</dimen>
+    <dimen name="pk_seekbar_height">28dp</dimen>
+    <dimen name="pk_seekbar_thumb_margin">0dp</dimen>
+    <dimen name="pk_ink_tool_width">48dp</dimen>
+    <dimen name="pk_other_tool_width">52dp</dimen>
+</resources>

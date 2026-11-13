@@ -326,7 +326,7 @@ class AnnotationService : Service(),
                 refreshToolbar()
             }
             GestureAction.CYCLE_TOOL -> {
-                val order = PenStyle.entries
+                val order = PenStyle.toolbarOrder
                 val next = order[(order.indexOf(canvas.brush.style) + 1) % order.size]
                 canvas.brush = canvas.brush.copy(style = next, size = next.defaultSize.toFloat(), alpha = next.defaultAlpha)
                 refreshToolbar()
@@ -429,7 +429,10 @@ class AnnotationService : Service(),
         showPanel(colorPanel, anchorX, dp(360))
     }
 
-    override fun onOpenMoreMenu(anchorX: Int) = showPanel(moreMenu, anchorX, dp(240))
+    override fun onOpenMoreMenu(anchorX: Int) {
+        moreMenu.setChecks(autoMinimize, canvas.allowFinger)
+        showPanel(moreMenu, anchorX, dp(200))
+    }
 
     override fun onUndo() { canvas.undo() }
     override fun onRedo() { canvas.redo() }

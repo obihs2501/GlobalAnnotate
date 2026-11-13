@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:id="@+id/ll_root"
+    android:background="@drawable/penpicker_popup_bg"
+    android:layout_width="@dimen/penpicker_pen_set_popup_window_width"
+    android:layout_height="wrap_content">
+    <!-- Only this tag differs from the original: the preview is drawn live
+         instead of being a bundled PNG sample. Same id, same 110dp height. -->
+    <com.globalannotate.app.widget.StrokePreview
+        android:id="@+id/iv_pen_review"
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/pk_pen_set_preview_image_height"/>
+    <ScrollView
+        android:id="@+id/sl"
+        android:paddingBottom="16dp"
+        android:scrollbars="none"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="20dp">
+        <LinearLayout
+            android:orientation="vertical"
+            android:id="@+id/property_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+    </ScrollView>
+</LinearLayout>

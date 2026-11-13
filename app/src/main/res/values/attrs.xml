@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Declared so the unmodified Mi Canvas layouts keep their attributes. -->
+    <declare-styleable name="FilterSortView">
+        <attr name="filterSortViewStrokeEnabled" format="boolean" />
+    </declare-styleable>
+</resources>

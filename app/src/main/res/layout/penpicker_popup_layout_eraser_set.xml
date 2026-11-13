@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:orientation="vertical"
+    android:id="@+id/ll_root"
+    android:background="@drawable/penpicker_popup_bg"
+    android:paddingTop="20dp"
+    android:paddingBottom="16dp"
+    android:layout_width="@dimen/penpicker_small_popup_window_width"
+    android:layout_height="wrap_content"
+    android:paddingHorizontal="@dimen/pk_pen_set_margin_horizontal">
+    <com.globalannotate.app.penpicker.FilterSortView
+        android:id="@+id/penpicker_filterSortView"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="40dp"
+        app:filterSortViewStrokeEnabled="true"/>
+    <FrameLayout
+        android:id="@+id/penpicker_eraser_content"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"/>
+    <TextView
+        android:textColor="@color/penpicker_eraser_hint_text_color"
+        android:gravity="center"
+        android:id="@+id/penpicker_eraser_stroke_hint"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:visibility="gone"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="31dp"
+        android:layout_marginBottom="25dp"
+        android:text="@string/pk_eraser_stroke_hint"
+        android:importantForAccessibility="yes"
+        style="@style/penpicker_pen_set"/>
+</LinearLayout>

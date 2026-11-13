@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Copied verbatim from Mi Canvas res/values-zh-rCN/strings.xml. -->
+<resources>
+    <string name="pk_color_picker_popup_alpha_label">不透明度</string>
+    <string name="pk_color_picker_popup_color_title">颜色</string>
+    <string name="pk_color_picker_popup_tab_grid">网格取色</string>
+    <string name="pk_color_picker_popup_tab_slider">滑块取色</string>
+    <string name="pk_color_picker_slider_hue_label">色相</string>
+    <string name="pk_color_picker_slider_lightness_label">亮度</string>
+    <string name="pk_color_picker_slider_saturation_label">饱和度</string>
+    <string name="pk_eraser_stroke_hint">笔画橡皮无需调整粗细</string>
+    <string name="pk_more_tool_option_finger_write">用手指涂画</string>
+</resources>
