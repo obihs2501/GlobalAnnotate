@@ -20,7 +20,6 @@ import com.globalannotate.app.model.PenStyle
 import com.globalannotate.app.stylus.FocusPenGestureDetector
 import kotlin.math.abs
 import kotlin.math.hypot
-import kotlin.math.minOf
 import kotlin.math.sin
 
 /**
