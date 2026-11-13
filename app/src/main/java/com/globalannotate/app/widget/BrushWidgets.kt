@@ -100,10 +100,10 @@ class BrushPreview(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         val c = brush.color
-        val a = brush.style.alpha
+        val a = brush.alpha
         paint.color = Color.argb(a, Color.red(c), Color.green(c), Color.blue(c))
         val maxWidth = (height * 0.55f).coerceAtLeast(2f)
-        paint.strokeWidth = (brush.widthDp * density).coerceIn(2f, maxWidth)
+        paint.strokeWidth = (brush.style.toPixels(brush.size, density)).coerceIn(2f, maxWidth)
         val pad = width * 0.12f
         canvas.drawLine(pad, height / 2f, width - pad, height / 2f, paint)
     }

@@ -19,7 +19,7 @@ import kotlin.math.min
  */
 class BrushGlyph(context: Context) : View(context) {
 
-    var style: PenStyle = PenStyle.PEN
+    var style: PenStyle = PenStyle.INK_PEN
         set(value) { field = value; invalidate() }
     var color: Int = Color.parseColor("#F4511E")
         set(value) { field = value; invalidate() }
@@ -42,12 +42,11 @@ class BrushGlyph(context: Context) : View(context) {
     private fun artworkFor(style: PenStyle): Int = when (style) {
         PenStyle.PENCIL -> R.drawable.brush_pencil
         PenStyle.BALLPOINT -> R.drawable.brush_ballpoint
-        PenStyle.PEN -> R.drawable.brush_pen
+        PenStyle.INK_PEN -> R.drawable.brush_pen
         PenStyle.MARKER -> R.drawable.brush_marker
         PenStyle.HIGHLIGHTER -> R.drawable.brush_highlighter
         PenStyle.LASER -> R.drawable.brush_laser
-        PenStyle.ERASER_PIXEL -> R.drawable.brush_eraser_pixel
-        PenStyle.ERASER_STROKE -> R.drawable.brush_eraser_stroke
+        PenStyle.ERASER -> R.drawable.brush_eraser_pixel
     }
 
     override fun onDraw(canvas: Canvas) {
