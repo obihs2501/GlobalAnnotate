@@ -11,7 +11,7 @@
     <color name="ga_tab_selected">#4DFFFFFF</color>
     <color name="ga_accent">#3482FF</color>
     <color name="ga_icon_tint">#E8EAED</color>
-    <color name="ga_circle_bg">#33FFFFFF</color>
+    <color name="ga_circle_bg">#1FFFFFFF</color>
     <color name="ga_eraser_hint">#66FFFFFF</color>
     <color name="ga_ripple">#1FFFFFFF</color>
     <color name="ga_text_hint">#7FFFFFFF</color>

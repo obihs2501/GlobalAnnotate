@@ -126,7 +126,9 @@ class AnnotationService : Service(),
 
         toolbar = ToolbarView(this, this)
         orb = BrushGlyph(this).apply {
-            large = true
+            // Collapsed bubble: one small pen on an orb background, like the
+            // original 56dp bubble rather than a stretched toolbar icon.
+            large = false
             setBackgroundResource(R.drawable.bg_orb)
             elevation = dp(6).toFloat()
             setOnClickListener { toggleToolbar() }
@@ -148,16 +150,16 @@ class AnnotationService : Service(),
         // Hug the content: a fixed 620dp bar left an empty strip on the right.
         val barWidth = toolbar.contentWidthPx()
             .coerceIn(dp(420), (screenWidth - dp(24)).coerceAtLeast(dp(320)))
-        toolbarParams = params(barWidth, dp(BAR_HEIGHT_DP), passiveFlags).apply {
+        toolbarParams = params(barWidth, dp(ToolbarView.WINDOW_HEIGHT_DP), passiveFlags).apply {
             gravity = Gravity.TOP or Gravity.START
             x = prefs.getInt(KEY_BAR_X, -1).let {
                 if (it >= 0) it else ((screenWidth - barWidth) / 2).coerceAtLeast(0)
             }
             y = prefs.getInt(KEY_BAR_Y, -1).let {
-                if (it >= 0) it else (screenHeight - dp(BAR_HEIGHT_DP) - dp(24)).coerceAtLeast(0)
+                if (it >= 0) it else (screenHeight - dp(ToolbarView.WINDOW_HEIGHT_DP) - dp(16)).coerceAtLeast(0)
             }
         }
-        orbParams = params(dp(72), dp(72), passiveFlags).apply {
+        orbParams = params(dp(56), dp(56), passiveFlags).apply {
             gravity = Gravity.BOTTOM or Gravity.END
             x = dp(24)
             y = dp(24)
@@ -505,9 +507,7 @@ class AnnotationService : Service(),
     }
 
     override fun onExpandedChanged() {
-        gesturePanel.post {
-            runCatching { windowManager.updateViewLayout(gesturePanel, gesturePanelParams) }
-        }
+        // The panel scrolls now, so expanding an action list needs no resize.
     }
 
     // ── MoreMenu.Listener ───────────────────────────────────────────────────
@@ -609,7 +609,12 @@ class AnnotationService : Service(),
             )
             height = child.measuredHeight
         }
-        lp.height = height.coerceIn(dp(48), screenHeight - dp(64))
+        val maxHeight = if (view === gesturePanel) {
+            (screenHeight * 0.72f).toInt()
+        } else {
+            screenHeight - dp(64)
+        }
+        lp.height = height.coerceIn(dp(48), maxHeight)
     }
 
     private fun closePanels() {
@@ -824,7 +829,6 @@ class AnnotationService : Service(),
         private const val CHANNEL_ID = "global_annotate"
         private const val OVERLAY_HIDE_SETTLE_MS = 160L
         private const val BAR_WIDTH_DP = 620
-        private const val BAR_HEIGHT_DP = 88
         private const val PANEL_ANIM_MS = 150L
         private const val PANEL_ENTER_SCALE = 0.96f
         private val PanelInterpolator = PathInterpolator(0f, 0f, 0.2f, 1f)

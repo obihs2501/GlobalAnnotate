@@ -22,7 +22,7 @@ import com.globalannotate.app.R
  *  - muted secondary text uses the summary role (60% onSurface)
  *  - ripple feedback, and the action list expands inline with a check mark
  */
-class GesturePanel(context: Context, private val listener: Listener) : LinearLayout(context) {
+class GesturePanel(context: Context, private val listener: Listener) : android.widget.FrameLayout(context) {
 
     interface Listener {
         fun onAction(gesture: String, action: GestureAction)
@@ -33,11 +33,17 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
     /** Only the actions that make sense from the pen barrel. */
     private val shownActions = listOf(
         GestureAction.NONE,
+        GestureAction.TOGGLE_TOOLBAR,
         GestureAction.TOGGLE_OVERLAY,
         GestureAction.TOGGLE_ERASER,
+        GestureAction.CYCLE_TOOL,
+        GestureAction.OPEN_COLOR,
         GestureAction.CYCLE_COLOR,
         GestureAction.UNDO,
-        GestureAction.TOGGLE_TOOLBAR,
+        GestureAction.REDO,
+        GestureAction.CLEAR,
+        GestureAction.INCREASE_WIDTH,
+        GestureAction.DECREASE_WIDTH,
     )
 
     private val gestures = listOf(
@@ -53,8 +59,11 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
     private val listViews = mutableMapOf<String, LinearLayout>()
     private val expanded = mutableSetOf<String>()
 
-    init {
+    private val content = LinearLayout(context).apply {
         orientation = VERTICAL
+    }
+
+    init {
         background = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(32).toFloat()
@@ -64,7 +73,17 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
         setPadding(dp(24), dp(24), dp(24), dp(16))
         layoutParams = LayoutParams(dp(320), WRAP_CONTENT)
 
-        addView(TextView(context).apply {
+        // The list can outgrow the popup, so it scrolls like any Miuix dialog.
+        addView(
+            android.widget.ScrollView(context).apply {
+                isVerticalScrollBarEnabled = false
+                overScrollMode = OVER_SCROLL_NEVER
+                addView(content, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            },
+            LayoutParams(MATCH_PARENT, WRAP_CONTENT),
+        )
+
+        content.addView(TextView(context).apply {
             text = "笔身手势"
             textSize = 20f
             includeFontPadding = false
@@ -122,9 +141,9 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
             listener.onExpandedChanged()
         }
 
-        addView(header, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-        addView(list, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-        addView(hairline(), LinearLayout.LayoutParams(MATCH_PARENT, 1))
+        content.addView(header, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        content.addView(list, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        content.addView(hairline(), LinearLayout.LayoutParams(MATCH_PARENT, 1))
     }
 
     private fun actionRow(gesture: String, action: GestureAction): View {
