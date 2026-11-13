@@ -133,9 +133,9 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
         // A divider keeps 退出 physically away from ⋮ (export lives in the menu).
         row.addView(View(context).apply {
             setBackgroundColor(ContextCompat.getColor(context, R.color.ga_divider))
-            layoutParams = LinearLayout.LayoutParams(dp(1).toInt(), dp(24).toInt()).apply {
-                marginStart = dp(10).toInt()
-                marginEnd = dp(10).toInt()
+            layoutParams = LinearLayout.LayoutParams(dp(1).toInt(), dp(26).toInt()).apply {
+                marginStart = dp(18).toInt()
+                marginEnd = dp(18).toInt()
             }
         })
         row.addView(circle(R.drawable.ic_close) { listener.onQuit() })

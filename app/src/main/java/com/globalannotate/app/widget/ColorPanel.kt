@@ -62,7 +62,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
         orientation = VERTICAL
         setBackgroundResource(R.drawable.bg_panel)
         elevation = dp(8)
-        layoutParams = LayoutParams(dp(360).toInt(), dp(571).toInt())
+        layoutParams = LayoutParams(dp(360).toInt(), dp(requiredHeightDp()))
 
         // Title row: 20dp top/bottom margin, straw button aligned to the end.
         val titleRow = LinearLayout(context).apply {
@@ -113,7 +113,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
             color = picked
             listener.onColor(Color.argb(opacity, Color.red(picked), Color.green(picked), Color.blue(picked)))
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(dp(330).toInt(), dp(230).toInt()).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(310).toInt(), dp(210).toInt()).apply {
                 topMargin = dp(3).toInt()
             }
         }
@@ -180,6 +180,9 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
             topMargin = dp(16).toInt()
         })
     }
+
+    /** Total popup height: title + tabs + label + grid + opacity + colour row. */
+    fun requiredHeightDp(): Int = 20 + 44 + 12 + 40 + 14 + 20 + 3 + 230 + 16 + 20 + 6 + 26 + 16 + 64 + 12
 
     private fun selectTab(gridSelected: Boolean) {
         gridTab.setTabSelected(gridSelected)

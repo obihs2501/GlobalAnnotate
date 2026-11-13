@@ -135,18 +135,16 @@ class AnnotationService : Service(),
         canvasParams = params(MATCH, MATCH, baseFlags)
         // Fixed size: a WRAP overlay window measures to 0 before its content
         // lays out, which made the whole bar disappear.
-        toolbarParams = params(dp(500), dp(94), passiveFlags).apply {
+        toolbarParams = params(dp(620), dp(94), passiveFlags).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             y = dp(24)
-        }
         orbParams = params(dp(72), dp(72), passiveFlags).apply {
             gravity = Gravity.BOTTOM or Gravity.END
             x = dp(24)
             y = dp(24)
         }
-        }
         paletteParams = params(MATCH, MATCH, passiveFlags)
-        colorPanelParams = anchoredParams(dp(360), dp(560), passiveFlags)
+        colorPanelParams = anchoredParams(dp(360), dp(colorPanel.requiredHeightDp()), passiveFlags)
         brushPanelParams = anchoredParams(dp(288), dp(420), passiveFlags)
         eraserPanelParams = anchoredParams(dp(288), dp(200), passiveFlags)
         gesturePanelParams = anchoredParams(dp(288), dp(320), passiveFlags)
@@ -384,9 +382,11 @@ class AnnotationService : Service(),
         }
         if (style.isEraser) {
             eraserPanel.brush = canvas.brush
+            brushPanelParams.height = dp(brushPanel.requiredHeightDp())
             showPanel(eraserPanel, anchorX, dp(288))
         } else {
             brushPanel.brush = canvas.brush
+            brushPanelParams.height = dp(brushPanel.requiredHeightDp())
             showPanel(brushPanel, anchorX, dp(288))
         }
     }
@@ -399,6 +399,7 @@ class AnnotationService : Service(),
     override fun onOpenColorPanel(anchorX: Int) {
         colorPanel.color = canvas.brush.color
         colorPanel.opacity = canvas.brush.alpha
+        colorPanelParams.height = dp(colorPanel.requiredHeightDp())
         showPanel(colorPanel, anchorX, dp(360))
     }
 
@@ -448,9 +449,17 @@ class AnnotationService : Service(),
         saveGestures()
     }
 
+    override fun onExpandedChanged() {
+        gesturePanelParams.height = dp(gesturePanel.requiredHeightDp())
+        gesturePanel.post {
+            runCatching { windowManager.updateViewLayout(gesturePanel, gesturePanelParams) }
+        }
+    }
+
     // ── MoreMenu.Listener ───────────────────────────────────────────────────
     override fun onGestureSettings() {
         gesturePanel.setActions(gestureMap)
+        gesturePanelParams.height = dp(gesturePanel.requiredHeightDp())
         showPanel(gesturePanel, screenWidth / 2, dp(288))
     }
     override fun onAutoMinimize(enabled: Boolean) { autoMinimize = enabled }
@@ -550,13 +559,27 @@ class AnnotationService : Service(),
 
     private suspend fun <T> withOverlaysHidden(block: suspend () -> T): T {
         val views = listOf(canvas, toolbar, orb, palette) + panels
-        val states = views.map { it to it.visibility }
-        states.forEach { (view, _) -> view.visibility = View.INVISIBLE }
+        // Fade window alpha instead of toggling visibility: no relayout pass,
+        // so the bar does not visibly flash when it comes back.
+        val states = views.map { it to paramsFor(it).alpha }
+        states.forEach { (view, _) ->
+            runCatching {
+                val lp = paramsFor(view)
+                lp.alpha = 0f
+                windowManager.updateViewLayout(view, lp)
+            }
+        }
         return try {
             delay(OVERLAY_HIDE_SETTLE_MS)
             block()
         } finally {
-            states.forEach { (view, state) -> view.visibility = state }
+            states.forEach { (view, alpha) ->
+                runCatching {
+                    val lp = paramsFor(view)
+                    lp.alpha = alpha
+                    windowManager.updateViewLayout(view, lp)
+                }
+            }
         }
     }
 
