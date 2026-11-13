@@ -45,6 +45,7 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
         fun onSavePng()
         fun onSavePdf()
         fun onQuit()
+        fun onCollapse()
     }
 
     private val density = resources.displayMetrics.density
@@ -79,6 +80,7 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
         setPadding(dp(16).toInt(), dp(6).toInt(), dp(16).toInt(), dp(10).toInt())
 
         val handle = View(context).apply {
+            setOnClickListener { listener.onCollapse() }
             background = GradientDrawable().apply {
                 setColor(Color.argb(90, 255, 255, 255))
                 cornerRadius = dp(2)
@@ -105,7 +107,8 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
             val glyph = BrushGlyph(context).apply {
                 this.style = style
                 setOnClickListener { listener.onStyle(style) }
-                layoutParams = LinearLayout.LayoutParams(dp(40).toInt(), dp(62).toInt())
+                layoutParams = LinearLayout.LayoutParams(dp(46).toInt(), dp(84).toInt())
+                translationY = dp(8)
             }
             glyphs[style] = glyph
             row.addView(glyph)
@@ -195,6 +198,7 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
             glyph.style = style
             glyph.color = brush.color
             glyph.checked = style == brush.style
+            glyph.animate().translationY(if (glyph.checked) -dp(6) else dp(8)).setDuration(160).start()
         }
         quickSwatches.forEach { it.checked = it.color == brush.color }
         colorStrip.setColor(brush.color)

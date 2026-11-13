@@ -92,6 +92,8 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
 
         toolbar = ToolbarView(this, this)
         orb = BrushGlyph(this).apply {
+            large = true
+            accentRing = true
             setBackgroundResource(R.drawable.bg_orb)
             elevation = dp(6).toFloat()
             setOnClickListener { toggleToolbar() }
@@ -107,7 +109,7 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             y = dp(32)
         }
-        orbParams = params(dp(76), dp(76), passiveFlags).apply {
+        orbParams = params(dp(88), dp(88), passiveFlags).apply {
             gravity = Gravity.BOTTOM or Gravity.END
             x = dp(28)
             y = dp(28)
@@ -153,6 +155,7 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
 
     private fun toggleToolbar() {
         toolbarVisible = !toolbarVisible
+        if (toolbarVisible && !active) setActive(true)
         applyToolbarVisibility()
     }
 
@@ -288,6 +291,10 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
     }
 
     // ── ToolbarView.Listener ────────────────────────────────────────────────
+    override fun onCollapse() {
+        toolbarVisible = false
+        applyToolbarVisibility()
+    }
     override fun onStyle(style: PenStyle) { canvas.style = style; refreshToolbar() }
     override fun onColor(color: Int) { canvas.penColor = color; refreshToolbar() }
     override fun onPipette() = pickColorFromScreen()
