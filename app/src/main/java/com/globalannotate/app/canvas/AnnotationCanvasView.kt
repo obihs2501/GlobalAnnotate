@@ -8,18 +8,22 @@ import android.graphics.Paint
 import android.graphics.PointF
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
+import android.os.Handler
+import android.os.Looper
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import com.globalannotate.app.Gesture
 import com.globalannotate.app.OverlayMode
+import com.globalannotate.app.model.BrushConfig
+import com.globalannotate.app.model.PenStyle
 import com.globalannotate.app.stylus.FocusPenGestureDetector
+import kotlin.math.hypot
 
 /**
- * Ink is kept on an offscreen ARGB_8888 bitmap so the eraser can use
- * PorterDuff.Mode.CLEAR (hardware-accelerated View canvases do not honour it).
- * A stroke history is kept alongside it for undo/redo and for re-rendering after
- * a size change.
+ * Ink is kept on an offscreen ARGB_8888 bitmap so erasers can use
+ * PorterDuff.Mode.CLEAR. A stroke history is kept alongside it for undo/redo,
+ * brush-style aware re-rendering and fading laser strokes.
  */
 class AnnotationCanvasView(context: Context) : View(context) {
 
@@ -29,22 +33,47 @@ class AnnotationCanvasView(context: Context) : View(context) {
     private var ink: Bitmap? = null
     private var inkCanvas: Canvas? = null
     private var hoverPoint: PointF? = null
+    private val density = resources.displayMetrics.density
+    private val fadeHandler = Handler(Looper.getMainLooper())
 
-    var penColor: Int = Color.parseColor("#D93025")
-    var baseWidth: Float = 6f
-    var eraserWidth: Float = 48f
-    var eraserMode: Boolean = false
-    var allowFinger: Boolean = false
+    var brush: BrushConfig = BrushConfig()
     var mode: OverlayMode = OverlayMode.DRAW
-
+    var allowFinger: Boolean = false
     var onGesture: ((Gesture) -> Unit)? = null
     var onStateChanged: (() -> Unit)? = null
 
+    // Compatibility accessors used by AnnotationService.
+    var penColor: Int
+        get() = brush.color
+        set(value) { brush = brush.copy(color = value) }
+    var baseWidth: Float
+        get() = brush.widthDp
+        set(value) { brush = brush.copy(widthDp = value.coerceIn(1f, 60f)) }
+    var eraserMode: Boolean
+        get() = brush.style.isEraser
+        set(value) {
+            brush = if (value) brush.copy(style = PenStyle.ERASER_PIXEL)
+            else brush.copy(style = PenStyle.PEN)
+        }
+    var style: PenStyle
+        get() = brush.style
+        set(value) {
+            brush = brush.copy(style = value, widthDp = value.defaultWidthDp)
+            onStateChanged?.invoke()
+        }
+    var pressureEnabled: Boolean
+        get() = brush.pressureEnabled
+        set(value) { brush = brush.copy(pressureEnabled = value) }
+
     private val detector = FocusPenGestureDetector { gesture -> onGesture?.invoke(gesture) }
 
+    /** Resolved stroke width in px. Erasers are pressure-sensitive too. */
     private fun widthFor(pressure: Float): Float {
-        val p = pressure.coerceIn(0f, 1f).takeIf { it > 0f } ?: 0.5f
-        return if (eraserMode) eraserWidth else (baseWidth * (0.45f + 0.85f * p)).coerceAtLeast(1f)
+        val base = brush.widthDp * density
+        val p = if (brush.pressureEnabled && brush.style.pressureSensitive) {
+            pressure.coerceIn(0.05f, 1f).takeIf { it > 0f } ?: 0.5f
+        } else 0.5f
+        return (base * (0.45f + 0.85f * p)).coerceAtLeast(1f)
     }
 
     private fun paintFor(stroke: InkStroke): Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -55,7 +84,8 @@ class AnnotationCanvasView(context: Context) : View(context) {
             xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
             color = Color.BLACK
         } else {
-            color = stroke.color
+            val a = stroke.style.alpha
+            color = Color.argb(a, Color.red(stroke.color), Color.green(stroke.color), Color.blue(stroke.color))
         }
     }
 
@@ -75,7 +105,6 @@ class AnnotationCanvasView(context: Context) : View(context) {
         rebuildInk()
     }
 
-    /** Replays the whole history. Used by undo/redo and after a resize. */
     private fun rebuildInk() {
         val canvas = inkCanvas ?: return
         canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
@@ -115,9 +144,29 @@ class AnnotationCanvasView(context: Context) : View(context) {
         canvas.drawLine(a.x, a.y, b.x, b.y, paint)
     }
 
+    /** Stroke eraser: remove the last stroke intersecting the pen-down point. */
+    private fun eraseStrokeAt(x: Float, y: Float) {
+        val radius = widthFor(0.5f) * 2f
+        val index = strokes.indexOfLast { stroke ->
+            !stroke.style.isEraser && stroke.points.any { point ->
+                hypot(point.x - x, point.y - y) < radius + point.width
+            }
+        }
+        if (index >= 0) {
+            strokes.removeAt(index)
+            redoStack.clear()
+            rebuildInk()
+            onStateChanged?.invoke()
+        }
+    }
+
     private fun begin(x: Float, y: Float, pressure: Float) {
+        if (brush.style.isStrokeEraser) {
+            eraseStrokeAt(x, y)
+            return
+        }
         redoStack.clear()
-        val stroke = InkStroke(color = penColor, eraser = eraserMode)
+        val stroke = InkStroke(color = brush.color, style = brush.style, baseWidth = brush.widthDp)
         stroke.points.add(InkPoint(x, y, widthFor(pressure)))
         strokes.add(stroke)
         active = stroke
@@ -134,15 +183,19 @@ class AnnotationCanvasView(context: Context) : View(context) {
     }
 
     private fun end() {
+        val finished = active ?: return
         active = null
+        if (finished.style.fades) {
+            fadeHandler.postDelayed({
+                if (strokes.remove(finished)) {
+                    rebuildInk()
+                    onStateChanged?.invoke()
+                }
+            }, LASER_FADE_MS)
+        }
         onStateChanged?.invoke()
     }
 
-    /**
-     * Feeds one stylus event. In [OverlayMode.ROOT_SPLIT] these arrive from
-     * system_server through the binder sink; in [OverlayMode.DRAW] they arrive
-     * from [onTouchEvent].
-     */
     fun injectStylusEvent(event: MotionEvent): Boolean {
         if (event.pointerCount == 0) return false
         val tool = event.getToolType(0)
@@ -150,7 +203,6 @@ class AnnotationCanvasView(context: Context) : View(context) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> begin(event.x, event.y, event.pressure)
             MotionEvent.ACTION_MOVE -> {
-                // Coalesced samples keep fast strokes smooth without a prediction SDK.
                 if (event.historySize > 0) {
                     for (i in 0 until event.historySize) {
                         move(event.getHistoricalX(i), event.getHistoricalY(i), event.getHistoricalPressure(i))
@@ -175,7 +227,6 @@ class AnnotationCanvasView(context: Context) : View(context) {
         if (mode != OverlayMode.DRAW) return false
         val tool = if (event.pointerCount > 0) event.getToolType(0) else MotionEvent.TOOL_TYPE_UNKNOWN
         if (!allowFinger && tool != MotionEvent.TOOL_TYPE_STYLUS && tool != MotionEvent.TOOL_TYPE_ERASER) {
-            // Consume finger input so it neither draws nor leaks into the app below.
             return true
         }
         injectStylusEvent(event)
@@ -206,7 +257,7 @@ class AnnotationCanvasView(context: Context) : View(context) {
         hoverPoint?.let { point ->
             val preview = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.STROKE
-                color = penColor
+                color = brush.color
                 alpha = 140
                 strokeWidth = 2f
             }
@@ -232,6 +283,7 @@ class AnnotationCanvasView(context: Context) : View(context) {
         strokes.clear()
         redoStack.clear()
         active = null
+        fadeHandler.removeCallbacksAndMessages(null)
         rebuildInk()
         onStateChanged?.invoke()
     }
@@ -249,5 +301,9 @@ class AnnotationCanvasView(context: Context) : View(context) {
         background?.let { canvas.drawBitmap(it, 0f, 0f, null) }
         ink?.let { canvas.drawBitmap(it, 0f, 0f, null) }
         return result
+    }
+
+    private companion object {
+        const val LASER_FADE_MS = 1400L
     }
 }

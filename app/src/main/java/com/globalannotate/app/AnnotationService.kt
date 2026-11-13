@@ -21,6 +21,9 @@ import android.widget.Button
 import android.widget.Toast
 import androidx.core.app.ServiceCompat
 import com.globalannotate.app.canvas.AnnotationCanvasView
+import com.globalannotate.app.ink.SmartInk
+import com.globalannotate.app.model.BrushConfig
+import com.globalannotate.app.model.PenStyle
 import com.globalannotate.app.stylus.PenEngineClient
 import com.globalannotate.app.toolbar.ToolbarView
 import com.globalannotate.app.widget.RadialPaletteView
@@ -118,6 +121,7 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
         windowManager.addView(palette, paletteParams)
         windowManager.addView(orb, orbParams)
 
+        restoreBrush()
         Session.service = this
         Session.canvas = canvas
         setMode(OverlayMode.DRAW)
@@ -264,15 +268,17 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
 
     private fun refreshToolbar() {
         if (::toolbar.isInitialized) {
-            toolbar.update(mode, canvas.eraserMode, canvas.canUndo(), canvas.canRedo())
+            toolbar.update(canvas.brush, mode, canvas.canUndo(), canvas.canRedo())
         }
+        saveBrush()
     }
 
     // ── ToolbarView.Listener ────────────────────────────────────────────────
-    override fun onPen() { canvas.eraserMode = false; refreshToolbar() }
-    override fun onEraser() { canvas.eraserMode = true; refreshToolbar() }
-    override fun onColor() { togglePalette() }
-    override fun onWidth(delta: Float) { adjustWidth(delta) }
+    override fun onStyle(style: PenStyle) { canvas.style = style; refreshToolbar() }
+    override fun onColor(color: Int) { canvas.penColor = color; refreshToolbar() }
+    override fun onPipette() = pickColorFromScreen()
+    override fun onWidth(widthDp: Float) { canvas.baseWidth = widthDp; refreshToolbar() }
+    override fun onPressure(enabled: Boolean) { canvas.pressureEnabled = enabled; refreshToolbar() }
     override fun onUndo() { canvas.undo() }
     override fun onRedo() { canvas.redo() }
     override fun onClear() { canvas.clear() }
@@ -288,6 +294,52 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
     override fun onSavePng() = export(pdf = false)
     override fun onSavePdf() = export(pdf = true)
     override fun onQuit() { stopSelf() }
+
+    /** Zero-auth cross-app eyedropper: root screenshot + pixel at the pen tip. */
+    private fun pickColorFromScreen() {
+        scope.launch {
+            val screen = withOverlaysHidden {
+                withContext(Dispatchers.IO) { Exporter.captureScreenRoot() }
+            }
+            if (screen == null) {
+                Exporter.lastCaptureError?.let { Log.w(TAG, "pipette failed: $it") }
+                Toast.makeText(this@AnnotationService, "取色失败（需要 root 授权）", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val picked = SmartInk.pickColor(screen, penTip.x.toInt(), penTip.y.toInt())
+            screen.recycle()
+            canvas.penColor = picked
+            refreshToolbar()
+            Toast.makeText(
+                this@AnnotationService,
+                "已取色 #" + "%06X".format(picked and 0xFFFFFF),
+                Toast.LENGTH_SHORT,
+            ).show()
+        }
+    }
+
+    private fun saveBrush() {
+        val b = canvas.brush
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+            .putString(KEY_STYLE, b.style.name)
+            .putInt(KEY_COLOR, b.color)
+            .putFloat(KEY_WIDTH, b.widthDp)
+            .putBoolean(KEY_PRESSURE, b.pressureEnabled)
+            .apply()
+    }
+
+    private fun restoreBrush() {
+        val p = getSharedPreferences(PREFS, MODE_PRIVATE)
+        val style = runCatching {
+            PenStyle.valueOf(p.getString(KEY_STYLE, PenStyle.PEN.name) ?: PenStyle.PEN.name)
+        }.getOrDefault(PenStyle.PEN)
+        canvas.brush = BrushConfig(
+            style = style,
+            color = p.getInt(KEY_COLOR, Color.parseColor("#D93025")),
+            widthDp = p.getFloat(KEY_WIDTH, style.defaultWidthDp),
+            pressureEnabled = p.getBoolean(KEY_PRESSURE, true),
+        )
+    }
 
     private fun export(pdf: Boolean) {
         scope.launch {
@@ -406,6 +458,11 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
     companion object {
         private const val NOTIFICATION_ID = 42
         private const val TAG = "AnnotationService"
+        private const val PREFS = "global_annotate_brush"
+        private const val KEY_STYLE = "style"
+        private const val KEY_COLOR = "color"
+        private const val KEY_WIDTH = "width"
+        private const val KEY_PRESSURE = "pressure"
         private const val CHANNEL_ID = "global_annotate"
         private const val OVERLAY_HIDE_SETTLE_MS = 160L
         private val MATCH = WindowManager.LayoutParams.MATCH_PARENT

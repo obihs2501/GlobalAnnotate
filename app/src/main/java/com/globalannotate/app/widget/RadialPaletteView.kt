@@ -5,17 +5,18 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PointF
+import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
-import kotlin.math.max
 import kotlin.math.sin
 
 /**
  * Apple Pencil Pro-style radial tool ring, summoned by squeezing the pen.
- * It appears next to the pen tip; picking a sector executes it and closes the ring.
+ * Styled with HyperOS/Miuix surfaces: translucent Cloud card, #0D84FF accent,
+ * colour dots per sector instead of tinted wedges.
  */
 class RadialPaletteView(context: Context) : View(context) {
 
@@ -28,11 +29,16 @@ class RadialPaletteView(context: Context) : View(context) {
     var listener: Listener? = null
 
     private val actions = enumValues<PaletteAction>()
-    private val labels = listOf("笔", "橡皮", "红", "蓝", "黑", "撤销", "清空", "关闭")
-    private val colors = listOf(
-        Color.parseColor("#EFEFEF"), Color.parseColor("#E4E7EC"),
-        Color.parseColor("#F4C7C3"), Color.parseColor("#BBD3F2"), Color.parseColor("#C9CDD4"),
-        Color.parseColor("#EFEFEF"), Color.parseColor("#EFEFEF"), Color.parseColor("#E4E7EC"),
+    private val labels = listOf("钢笔", "橡皮", "红", "蓝", "黑", "撤销", "清空", "关闭")
+    private val dots = listOf(
+        Color.parseColor("#202124"),
+        Color.parseColor("#9AA0A6"),
+        Color.parseColor("#D93025"),
+        Color.parseColor("#0D84FF"),
+        Color.parseColor("#202124"),
+        Color.parseColor("#9AA0A6"),
+        Color.parseColor("#9AA0A6"),
+        Color.parseColor("#9AA0A6"),
     )
 
     private val outerRadius = dp(112).toFloat()
@@ -43,20 +49,26 @@ class RadialPaletteView(context: Context) : View(context) {
     private val sectorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val pressedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = Color.parseColor("#FFD8A8")
+        color = Color.parseColor("#E5F2FF")
     }
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        color = Color.argb(180, 90, 95, 105)
+        color = Color.argb(26, 0, 0, 0)
         strokeWidth = dp(1).toFloat()
     }
+    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val holePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = Color.argb(235, 250, 251, 253)
+        color = Color.parseColor("#F7FBFF")
+    }
+    private val holeRing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = Color.parseColor("#0D84FF")
+        strokeWidth = dp(2).toFloat()
     }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#202124")
-        textSize = dp(13).toFloat()
+        color = Color.parseColor("#3C4043")
+        textSize = dp(12).toFloat()
         textAlign = Paint.Align.CENTER
     }
 
@@ -89,21 +101,25 @@ class RadialPaletteView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         if (visibility != VISIBLE) return
         val c = clampedCenter()
-        val rect = android.graphics.RectF(
-            c.x - outerRadius, c.y - outerRadius, c.x + outerRadius, c.y + outerRadius,
-        )
+        val rect = RectF(c.x - outerRadius, c.y - outerRadius, c.x + outerRadius, c.y + outerRadius)
+
         for (i in labels.indices) {
             val start = -90f + i * 45f - 22.5f
-            sectorPaint.color = colors[i]
+            sectorPaint.color = Color.parseColor("#F7F9FC")
             canvas.drawArc(rect, start, 45f, true, if (i == pressedIndex) pressedPaint else sectorPaint)
             canvas.drawArc(rect, start, 45f, true, ringPaint)
+
             val mid = Math.toRadians((start + 22.5f).toDouble())
             val lx = c.x + (outerRadius * 0.70f * cos(mid)).toFloat()
             val ly = c.y + (outerRadius * 0.70f * sin(mid)).toFloat()
-            canvas.drawText(labels[i], lx, ly + textPaint.textSize / 3f, textPaint)
+
+            dotPaint.color = dots[i]
+            canvas.drawCircle(lx, ly - dp(5), dp(6), dotPaint)
+            canvas.drawText(labels[i], lx, ly + dp(13), textPaint)
         }
+
         canvas.drawCircle(c.x, c.y, innerRadius, holePaint)
-        canvas.drawCircle(c.x, c.y, innerRadius, ringPaint)
+        canvas.drawCircle(c.x, c.y, innerRadius, holeRing)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -143,10 +159,9 @@ class RadialPaletteView(context: Context) : View(context) {
         return (normalized / 45f).toInt() % 8
     }
 
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+    private fun dp(value: Int): Float = value * resources.displayMetrics.density
 
     companion object {
-        /** Kept so callers can clamp a pen-tip position without knowing the radius. */
         fun minimumRadiusDp(): Int = 112
     }
 }

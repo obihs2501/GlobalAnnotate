@@ -1,0 +1,110 @@
+package com.globalannotate.app.widget
+
+import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.Paint
+import android.view.Gravity
+import android.view.View
+import android.widget.LinearLayout
+import com.globalannotate.app.R
+import com.globalannotate.app.model.BrushConfig
+import kotlin.math.min
+
+/** A single round colour swatch with a selection ring. */
+class SwatchView(context: Context, val color: Int) : View(context) {
+
+    var selected: Boolean = false
+        set(value) { field = value; invalidate() }
+
+    private val density = resources.displayMetrics.density
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    init {
+        isClickable = true
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val cx = width / 2f
+        val cy = height / 2f
+        val radius = min(width, height) * 0.33f
+
+        paint.style = Paint.Style.FILL
+        paint.color = color
+        canvas.drawCircle(cx, cy, radius, paint)
+
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 1.5f * density
+        paint.color = Color.argb(60, 0, 0, 0)
+        canvas.drawCircle(cx, cy, radius, paint)
+
+        if (selected) {
+            paint.strokeWidth = 2.5f * density
+            paint.color = Color.parseColor("#0D84FF")
+            canvas.drawCircle(cx, cy, min(width, height) * 0.46f, paint)
+        }
+    }
+}
+
+/** Horizontal palette + eyedropper button. */
+class ColorStrip(
+    context: Context,
+    private val onColor: (Int) -> Unit,
+    private val onPipette: () -> Unit,
+) : LinearLayout(context) {
+
+    private val swatches = mutableListOf<SwatchView>()
+    private var currentColor: Int = BrushConfig.PALETTE[3]
+    private val density = resources.displayMetrics.density
+
+    init {
+        orientation = HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        val item = dp(27).toInt()
+        val gap = dp(3).toInt()
+        for (c in BrushConfig.PALETTE) {
+            val swatch = SwatchView(context, c)
+            swatch.setOnClickListener {
+                setColor(c)
+                onColor(c)
+            }
+            swatches.add(swatch)
+            addView(swatch, LayoutParams(item, item).apply { marginStart = gap; marginEnd = gap })
+        }
+        val dropper = IconButton(context).apply {
+            iconRes = R.drawable.ic_pipette
+            onTap = { onPipette() }
+        }
+        addView(dropper, LayoutParams(dp(34).toInt(), dp(34).toInt()).apply { marginStart = gap })
+    }
+
+    fun setColor(color: Int) {
+        currentColor = color
+        swatches.forEach { it.selected = it.color == color }
+        invalidate()
+    }
+
+    private fun dp(value: Int): Float = value * density
+}
+
+/** Live preview of the current brush: colour, alpha and width. */
+class BrushPreview(context: Context) : View(context) {
+
+    var brush: BrushConfig = BrushConfig()
+        set(value) { field = value; invalidate() }
+
+    private val density = resources.displayMetrics.density
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        strokeCap = Paint.Cap.ROUND
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val c = brush.color
+        val a = brush.style.alpha
+        paint.color = Color.argb(a, Color.red(c), Color.green(c), Color.blue(c))
+        val maxWidth = (height * 0.55f).coerceAtLeast(2f)
+        paint.strokeWidth = (brush.widthDp * density).coerceIn(2f, maxWidth)
+        val pad = width * 0.12f
+        canvas.drawLine(pad, height / 2f, width - pad, height / 2f, paint)
+    }
+}
