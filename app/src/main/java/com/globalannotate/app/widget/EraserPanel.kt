@@ -42,7 +42,7 @@ class EraserPanel(context: Context, private val listener: Listener) : LinearLayo
         setBackgroundResource(R.drawable.bg_panel)
         elevation = dp(8)
         setPadding(dp(20).toInt(), dp(20).toInt(), dp(20).toInt(), dp(16).toInt())
-        layoutParams = LayoutParams(dp(288).toInt(), WRAP)
+        layoutParams = LayoutParams(dp(288).toInt(), WRAP_CONTENT)
 
         val tabRow = LinearLayout(context).apply {
             orientation = HORIZONTAL

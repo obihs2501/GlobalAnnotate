@@ -40,7 +40,7 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
         setBackgroundResource(R.drawable.bg_panel)
         elevation = dp(8)
         setPadding(dp(20).toInt(), dp(18).toInt(), dp(20).toInt(), dp(16).toInt())
-        layoutParams = LayoutParams(dp(288).toInt(), WRAP)
+        layoutParams = LayoutParams(dp(288).toInt(), WRAP_CONTENT)
 
         addView(TextView(context).apply {
             text = "笔身手势"
@@ -111,6 +111,7 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
         GestureAction.CYCLE_TOOL -> "切换笔刷"
         GestureAction.TOGGLE_TOOLBAR -> "收起工具栏"
         GestureAction.OPEN_COLOR -> "打开调色板"
+        GestureAction.CYCLE_COLOR -> "切换颜色"
     }
 
     private fun View_divider(context: Context): android.view.View =

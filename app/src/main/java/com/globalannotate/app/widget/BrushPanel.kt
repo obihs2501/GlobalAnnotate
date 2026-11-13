@@ -44,7 +44,7 @@ class BrushPanel(context: Context, private val listener: Listener) : LinearLayou
         orientation = VERTICAL
         setBackgroundResource(R.drawable.bg_panel)
         elevation = dp(8)
-        layoutParams = LayoutParams(dp(288).toInt(), WRAP)
+        layoutParams = LayoutParams(dp(288).toInt(), WRAP_CONTENT)
 
         preview = StrokePreview(context).apply {
             layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, dp(110).toInt())

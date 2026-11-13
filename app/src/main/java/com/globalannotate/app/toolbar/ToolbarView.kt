@@ -43,6 +43,7 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
     private val quickSwatches = mutableListOf<SwatchView>()
     private val undoButton: IconButton
     private val redoButton: IconButton
+    private lateinit var moreAnchor: View
 
     private val styles = listOf(
         PenStyle.PENCIL, PenStyle.BALLPOINT, PenStyle.INK_PEN,
@@ -119,13 +120,14 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
         }
         row.addView(grid)
 
-        row.addView(circle(R.drawable.ic_more) {
-            listener.onOpenMoreMenu(centerOnScreen(it))
-        }.apply {
-            layoutParams = LinearLayout.LayoutParams(dp(36).toInt(), dp(36).toInt()).apply {
-                marginStart = dp(6).toInt()
-            }
-        })
+        val moreButton = circle(R.drawable.ic_more) {
+            listener.onOpenMoreMenu(centerOnScreen(moreAnchor))
+        }
+        moreButton.layoutParams = LinearLayout.LayoutParams(dp(36).toInt(), dp(36).toInt()).apply {
+            marginStart = dp(6).toInt()
+        }
+        moreAnchor = moreButton
+        row.addView(moreButton)
         addView(scroll(row))
     }
 
