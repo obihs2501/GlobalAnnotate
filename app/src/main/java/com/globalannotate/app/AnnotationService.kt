@@ -95,7 +95,7 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
             iconRes = R.drawable.ic_pen
             onTap = { setActive(!active) }
             setBackgroundResource(R.drawable.bg_orb)
-            elevation = dp(6)
+            elevation = dp(6).toFloat()
         }
         palette = RadialPaletteView(this).apply { listener = this@AnnotationService }
 
