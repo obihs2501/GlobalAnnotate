@@ -1,14 +1,23 @@
 package com.globalannotate.app.model
 
 /**
- * Brush types with genuinely different stroke rendering.
- * pressureGain controls how strongly pen pressure changes the width.
+ * Brush model reverse-engineered from Mi Canvas (`PenTypeValue` / `PenBean`).
+ *
+ * Each pen type carries its own size range, exactly like the original:
+ *   INK_PEN 1..30 (default 15), BALLPOINT 1..22 (6), PENCIL 1..6 (3),
+ *   MARK / WATER_COLOR 5..65 (30), ERASER 4..32.
+ * Sensitivity is exposed only for the fountain pen and pencil (with different
+ * labels in the original), tip size only for the fountain pen.
  */
 enum class PenStyle(
     val label: String,
-    val defaultWidthDp: Float,
-    val alpha: Int,
-    val pressureGain: Float,
+    val minSize: Int,
+    val maxSize: Int,
+    val defaultSize: Int,
+    val defaultAlpha: Int,
+    val showSensitivity: Boolean = false,
+    val sensitivityLabel: String = "压力灵敏度",
+    val showTipSize: Boolean = false,
     val isEraser: Boolean = false,
     val fades: Boolean = false,
     val squareCap: Boolean = false,
@@ -16,16 +25,15 @@ enum class PenStyle(
     val glow: Boolean = false,
     val inkHighlight: Boolean = false,
 ) {
-    PENCIL("铅笔", 2.5f, 175, 0.60f, grain = true),
-    BALLPOINT("圆珠笔", 2.0f, 235, 0.12f, inkHighlight = true),
-    PEN("钢笔", 3.5f, 255, 1.00f),
-    MARKER("马克笔", 12f, 165, 0.30f, squareCap = true),
-    HIGHLIGHTER("荧光笔", 22f, 80, 0f, squareCap = true),
-    LASER("激光笔", 5f, 235, 0f, fades = true, glow = true),
-    ERASER_PIXEL("压感橡皮", 26f, 255, 0.80f, isEraser = true),
-    ERASER_STROKE("笔画橡皮", 26f, 255, 0f, isEraser = true),
+    INK_PEN("钢笔", 1, 30, 15, 255, showSensitivity = true, sensitivityLabel = "钢笔灵敏度", showTipSize = true),
+    BALLPOINT("圆珠笔", 1, 22, 6, 255, inkHighlight = true),
+    PENCIL("铅笔", 1, 6, 3, 200, showSensitivity = true, sensitivityLabel = "铅笔灵敏度", grain = true),
+    MARKER("马克笔", 5, 65, 30, 165, squareCap = true),
+    HIGHLIGHTER("荧光笔", 5, 65, 30, 80, squareCap = true),
+    LASER("激光笔", 1, 30, 6, 235, fades = true, glow = true),
+    ERASER("橡皮", 4, 32, 12, 255, isEraser = true),
     ;
 
-    val isPixelEraser: Boolean get() = this == ERASER_PIXEL
-    val isStrokeEraser: Boolean get() = this == ERASER_STROKE
+    /** Mi Canvas draws size in its own unit; this maps it to pixels. */
+    fun toPixels(size: Float, density: Float): Float = size * density * 0.42f
 }

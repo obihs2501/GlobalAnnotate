@@ -23,7 +23,7 @@ class IconButton(context: Context) : View(context) {
     private val backgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        color = Color.parseColor("#FF5B52")
+        color = Color.parseColor("#4A9BFF")
     }
     private var drawable: Drawable? = null
 
@@ -43,7 +43,7 @@ class IconButton(context: Context) : View(context) {
         val icon = context.getDrawable(iconRes)?.mutate()
         drawable = icon
         icon ?: return
-        icon.setTint(if (checked) Color.parseColor("#FF5B52") else Color.parseColor("#E8EAED"))
+        icon.setTint(if (checked) Color.parseColor("#4A9BFF") else Color.parseColor("#E8EAED"))
         val size = (min(width, height) - dp(12).toInt()).coerceAtLeast(1)
         val left = (width - size) / 2
         val top = (height - size) / 2

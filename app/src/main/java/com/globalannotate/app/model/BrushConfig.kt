@@ -2,17 +2,36 @@ package com.globalannotate.app.model
 
 import android.graphics.Color
 
-/** Current brush state. Persisted by AnnotationService. */
+/** Eraser modes, mirroring Mi Canvas' two tabs in the eraser popup. */
+enum class EraserMode { PIXEL, STROKE }
+
+/** Current brush state, persisted by AnnotationService. */
 data class BrushConfig(
-    val style: PenStyle = PenStyle.PEN,
+    val style: PenStyle = PenStyle.INK_PEN,
     val color: Int = Color.parseColor("#D93025"),
-    val widthDp: Float = PenStyle.PEN.defaultWidthDp,
-    val pressureEnabled: Boolean = true,
-    val pressureSensitivity: Float = 0.5f,
-    val minWidthDp: Float = 1f,
-    val opacity: Int = 255,
+    val size: Float = PenStyle.INK_PEN.defaultSize.toFloat(),
+    val alpha: Int = PenStyle.INK_PEN.defaultAlpha,
+    val sensitivity: Float = 0.5f,
+    val tipSize: Float = 1f,
+    val eraserMode: EraserMode = EraserMode.PIXEL,
+    val eraserSize: Float = PenStyle.ERASER.defaultSize.toFloat(),
 ) {
+    /** Colour with the current alpha applied. */
+    val effectiveColor: Int
+        get() = Color.argb(
+            alpha,
+            Color.red(color), Color.green(color), Color.blue(color),
+        )
+
     companion object {
+        /** The four quick colours on the main bar, 2x2 like Mi Canvas. */
+        val QUICK_COLORS = listOf(
+            Color.parseColor("#D93025"),
+            Color.parseColor("#F9AB00"),
+            Color.parseColor("#1A73E8"),
+        )
+
+        /** Full palette used by the colour panel. */
         val PALETTE = listOf(
             Color.parseColor("#202124"),
             Color.parseColor("#5F6368"),

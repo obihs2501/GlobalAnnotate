@@ -82,13 +82,13 @@ class BrushGlyph(context: Context) : View(context) {
         }
 
         if (checked) {
-            ringPaint.color = Color.parseColor("#FF5B52")
-            ringPaint.strokeWidth = w * 0.045f
+            ringPaint.color = Color.argb(70, 255, 255, 255)
+            ringPaint.strokeWidth = w * 0.04f
             canvas.drawCircle(cx, h * 0.52f, unit * 0.46f, ringPaint)
         }
         if (accentRing && !checked) {
-            ringPaint.color = if (style.isEraser) Color.parseColor("#9AA0A6") else color
-            ringPaint.strokeWidth = w * 0.035f
+            ringPaint.color = Color.argb(90, 255, 255, 255)
+            ringPaint.strokeWidth = w * 0.03f
             canvas.drawCircle(cx, h * 0.52f, unit * 0.43f, ringPaint)
         }
     }

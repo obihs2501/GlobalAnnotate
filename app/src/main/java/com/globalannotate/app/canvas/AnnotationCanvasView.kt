@@ -16,6 +16,7 @@ import android.view.View
 import com.globalannotate.app.Gesture
 import com.globalannotate.app.OverlayMode
 import com.globalannotate.app.model.BrushConfig
+import com.globalannotate.app.model.EraserMode
 import com.globalannotate.app.model.PenStyle
 import com.globalannotate.app.stylus.FocusPenGestureDetector
 import kotlin.math.abs
@@ -23,10 +24,12 @@ import kotlin.math.hypot
 import kotlin.math.sin
 
 /**
- * Ink is kept on an offscreen ARGB_8888 bitmap so erasers can use
- * PorterDuff.Mode.CLEAR. Each PenStyle renders a genuinely different stroke:
- * graphite grain, ballpoint highlight, pressure-driven nib, square marker,
- * translucent highlighter, glowing fading laser, and two eraser modes.
+ * Offscreen ink bitmap + stroke history. Each [PenStyle] renders differently so
+ * the drawing matches the brush artwork: graphite grain for the pencil, a thin
+ * sheen for the ballpoint, pressure-driven ink for the fountain pen, square
+ * translucent strokes for marker/highlighter, glow + fade for the laser.
+ * The eraser has no alpha and no pressure response — only size (4..32), like
+ * Mi Canvas' eraser popup.
  */
 class AnnotationCanvasView(context: Context) : View(context) {
 
@@ -45,50 +48,38 @@ class AnnotationCanvasView(context: Context) : View(context) {
     var onGesture: ((Gesture) -> Unit)? = null
     var onStateChanged: (() -> Unit)? = null
 
-    // Compatibility accessors used by AnnotationService.
-    var penColor: Int
-        get() = brush.color
-        set(value) { brush = brush.copy(color = value) }
-    var baseWidth: Float
-        get() = brush.widthDp
-        set(value) { brush = brush.copy(widthDp = value.coerceIn(1f, 60f)) }
-    var eraserMode: Boolean
-        get() = brush.style.isEraser
-        set(value) {
-            brush = if (value) brush.copy(style = PenStyle.ERASER_PIXEL)
-            else brush.copy(style = PenStyle.PEN)
-        }
-    var style: PenStyle
-        get() = brush.style
-        set(value) {
-            brush = brush.copy(style = value, widthDp = value.defaultWidthDp)
-            onStateChanged?.invoke()
-        }
-    var pressureEnabled: Boolean
-        get() = brush.pressureEnabled
-        set(value) { brush = brush.copy(pressureEnabled = value) }
-
     private val detector = FocusPenGestureDetector { gesture -> onGesture?.invoke(gesture) }
 
-    /** Pressure response differs per nib; a ballpoint barely changes width. */
+    /** Active size: eraser keeps its own value, pens use the brush size. */
+    private fun sizeFor(): Float =
+        if (brush.style.isEraser) brush.eraserSize else brush.size
+
     private fun widthFor(pressure: Float): Float {
-        val base = brush.widthDp * density
-        val p = if (brush.pressureEnabled) pressure.coerceIn(0.05f, 1f) else 0.5f
-        val gain = brush.style.pressureGain * (0.4f + brush.pressureSensitivity)
-        val factor = 1f + gain * (p - 0.5f) * 1.6f
-        return (base * factor).coerceAtLeast(brush.minWidthDp * density)
+        val px = brush.style.toPixels(sizeFor(), density)
+        if (brush.style.isEraser) return px // no pressure response for erasing
+        return when (brush.style) {
+            PenStyle.PENCIL -> {
+                val p = pressure.coerceIn(0.15f, 1f)
+                px * (0.45f + 0.55f * p * (0.5f + brush.sensitivity))
+            }
+            PenStyle.INK_PEN -> {
+                val p = pressure.coerceIn(0.05f, 1f)
+                px * (0.25f + 1.15f * p * (0.4f + brush.sensitivity))
+            }
+            PenStyle.BALLPOINT -> px * 0.92f // almost no width variation
+            else -> px
+        }
     }
 
     private fun paintFor(stroke: InkStroke): Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = if (stroke.style.squareCap) Paint.Cap.SQUARE else Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
-        if (stroke.eraser) {
+        if (stroke.style.isEraser) {
             xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
             color = Color.BLACK
         } else {
-            val a = minOf(stroke.style.alpha, Color.alpha(stroke.color))
-            color = Color.argb(a, Color.red(stroke.color), Color.green(stroke.color), Color.blue(stroke.color))
+            color = stroke.color
         }
     }
 
@@ -142,7 +133,7 @@ class AnnotationCanvasView(context: Context) : View(context) {
     }
 
     private fun drawSegment(canvas: Canvas, a: InkPoint, b: InkPoint, stroke: InkStroke, paint: Paint) {
-        val width = ((a.width + b.width) * 0.5f).coerceAtLeast(0.5f)
+        val width = ((a.width + b.width) * 0.5f).coerceAtLeast(0.6f)
         paint.strokeWidth = width
 
         if (stroke.style.glow) {
@@ -157,12 +148,12 @@ class AnnotationCanvasView(context: Context) : View(context) {
 
         if (stroke.style.inkHighlight) {
             val sheen = Paint(paint).apply {
-                strokeWidth = width * 0.32f
+                strokeWidth = width * 0.30f
                 color = Color.argb(
-                    90,
-                    minOf(255, Color.red(stroke.color) + 80),
-                    minOf(255, Color.green(stroke.color) + 80),
-                    minOf(255, Color.blue(stroke.color) + 80),
+                    80,
+                    minOf(255, Color.red(stroke.color) + 70),
+                    minOf(255, Color.green(stroke.color) + 70),
+                    minOf(255, Color.blue(stroke.color) + 70),
                 )
             }
             canvas.drawLine(a.x, a.y, b.x, b.y, sheen)
@@ -174,25 +165,27 @@ class AnnotationCanvasView(context: Context) : View(context) {
     /** Deterministic graphite speckles so undo/redo re-renders identically. */
     private fun drawGrain(canvas: Canvas, a: InkPoint, b: InkPoint, width: Float, color: Int) {
         val distance = hypot(b.x - a.x, b.y - a.y)
-        val count = (distance / 2.6f).toInt().coerceIn(1, 14)
+        val count = (distance / 2.2f).toInt().coerceIn(1, 18)
         val grain = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = Color.argb(55, Color.red(color), Color.green(color), Color.blue(color))
+            this.color = Color.argb(
+                (Color.alpha(color) * 0.45f).toInt(),
+                Color.red(color), Color.green(color), Color.blue(color),
+            )
         }
         for (i in 0 until count) {
             val t = noise(a.x, b.y, i)
-            val jitter = (noise(b.x, a.y, i + 11) - 0.5f) * width
+            val jitter = (noise(b.x, a.y, i + 11) - 0.5f) * width * 1.2f
             val x = a.x + (b.x - a.x) * t + jitter
             val y = a.y + (b.y - a.y) * t + jitter
-            canvas.drawCircle(x, y, 0.55f * density, grain)
+            canvas.drawCircle(x, y, 0.5f * density, grain)
         }
     }
 
     private fun noise(x: Float, y: Float, i: Int): Float =
         abs((sin(x * 12.9898f + y * 78.233f + i * 37.719f) * 43758.5453f) % 1f)
 
-    /** Stroke eraser: remove the last stroke intersecting the pen-down point. */
     private fun eraseStrokeAt(x: Float, y: Float) {
-        val radius = widthFor(0.5f) * 2f
+        val radius = widthFor(0.5f) * 1.6f
         val index = strokes.indexOfLast { stroke ->
             !stroke.style.isEraser && stroke.points.any { point ->
                 hypot(point.x - x, point.y - y) < radius + point.width
@@ -207,16 +200,16 @@ class AnnotationCanvasView(context: Context) : View(context) {
     }
 
     private fun begin(x: Float, y: Float, pressure: Float) {
-        if (brush.style.isStrokeEraser) {
+        if (brush.style.isEraser && brush.eraserMode == EraserMode.STROKE) {
             eraseStrokeAt(x, y)
             return
         }
         redoStack.clear()
-        val inkColor = Color.argb(
-            brush.opacity,
-            Color.red(brush.color), Color.green(brush.color), Color.blue(brush.color),
+        val stroke = InkStroke(
+            color = if (brush.style.isEraser) Color.BLACK else brush.effectiveColor,
+            style = brush.style,
+            baseWidth = sizeFor(),
         )
-        val stroke = InkStroke(color = inkColor, style = brush.style, baseWidth = brush.widthDp)
         stroke.points.add(InkPoint(x, y, widthFor(pressure)))
         strokes.add(stroke)
         active = stroke
@@ -307,7 +300,7 @@ class AnnotationCanvasView(context: Context) : View(context) {
         hoverPoint?.let { point ->
             val preview = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 style = Paint.Style.STROKE
-                color = brush.color
+                color = if (brush.style.isEraser) Color.WHITE else brush.color
                 alpha = 140
                 strokeWidth = 2f
             }
