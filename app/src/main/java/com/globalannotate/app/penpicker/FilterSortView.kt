@@ -75,6 +75,13 @@ class FilterSortView @JvmOverloads constructor(
             gravity = Gravity.CENTER
             textSize = 14f
             includeFontPadding = false
+            setTextColor(
+                ContextCompat.getColor(
+                    context,
+                    if (index == selected) R.color.penpicker_colorpicker_text_title else R.color.penpicker_pen_set_text,
+                ),
+            )
+            background = if (index == selected) pill(tabFill()) else null
         }
     }
 

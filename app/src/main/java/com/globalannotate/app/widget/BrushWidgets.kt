@@ -26,7 +26,7 @@ class SwatchView(context: Context, val color: Int) : View(context) {
     override fun onDraw(canvas: Canvas) {
         val cx = width / 2f
         val cy = height / 2f
-        val radius = min(width, height) * 0.34f
+        val radius = min(width, height) * 0.46f
 
         paint.style = Paint.Style.FILL
         paint.color = color
@@ -41,7 +41,7 @@ class SwatchView(context: Context, val color: Int) : View(context) {
             // Selected swatch: white ring with a gap, like Mi Canvas.
             paint.strokeWidth = 2f * density
             paint.color = ContextCompat.getColor(context, R.color.ga_swatch_ring)
-            canvas.drawCircle(cx, cy, min(width, height) * 0.46f, paint)
+            canvas.drawCircle(cx, cy, 0.5f * min(width, height) - paint.strokeWidth / 2f, paint)
         }
     }
 }

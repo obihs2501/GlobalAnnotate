@@ -181,6 +181,15 @@ class AnnotationService : Service(),
         windowManager.addView(scrim, scrimParams)
         windowManager.addView(canvas, canvasParams)
         windowManager.addView(toolbar, toolbarParams)
+        // The first measurement happens before child layout, so correct the
+        // window width once the row is measured (removes the trailing gap).
+        toolbar.post {
+            val exact = toolbar.contentWidthPx()
+            if (exact > 0 && exact != toolbarParams.width) {
+                toolbarParams.width = exact.coerceIn(dp(420), screenWidth - dp(24))
+                runCatching { windowManager.updateViewLayout(toolbar, toolbarParams) }
+            }
+        }
         windowManager.addView(palette, paletteParams)
         windowManager.addView(colorPanel, colorPanelParams)
         windowManager.addView(brushPanel, brushPanelParams)
@@ -475,7 +484,7 @@ class AnnotationService : Service(),
             BrushPanel.ParamKind.ALPHA -> b.copy(alpha = (value * 255f).toInt().coerceIn(0, 255))
         }
         refreshToolbar()
-        brushPanel.brush = canvas.brush
+        brushPanel.applyBrush(canvas.brush)
     }
 
     // ── EraserPanel.Listener ────────────────────────────────────────────────
@@ -556,11 +565,17 @@ class AnnotationService : Service(),
     }
 
     private fun paramsFor(view: View): WindowManager.LayoutParams = when (view) {
+        canvas -> canvasParams
+        toolbar -> toolbarParams
+        orb -> orbParams
+        palette -> paletteParams
+        scrim -> scrimParams
         colorPanel -> colorPanelParams
         brushPanel -> brushPanelParams
         eraserPanel -> eraserPanelParams
         gesturePanel -> gesturePanelParams
-        else -> moreMenuParams
+        moreMenu -> moreMenuParams
+        else -> throw IllegalArgumentException("no window params for $view")
     }
 
     private fun showScrim() {
@@ -585,8 +600,16 @@ class AnnotationService : Service(),
             View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
         )
-        val height = view.measuredHeight
-        if (height > 0) lp.height = height.coerceAtMost(screenHeight - dp(64))
+        var height = view.measuredHeight
+        if (height <= 0 && view is android.view.ViewGroup && view.childCount > 0) {
+            val child = view.getChildAt(0)
+            child.measure(
+                View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+            )
+            height = child.measuredHeight
+        }
+        lp.height = height.coerceIn(dp(48), screenHeight - dp(64))
     }
 
     private fun closePanels() {
@@ -653,7 +676,7 @@ class AnnotationService : Service(),
     }
 
     private suspend fun <T> withOverlaysHidden(block: suspend () -> T): T {
-        val views = listOf(canvas, toolbar, orb, palette) + panels
+        val views = listOf(toolbar, orb) + panels.filter { it.visibility == View.VISIBLE }
         // Fade window alpha instead of toggling visibility: no relayout pass,
         // so the bar does not visibly flash when it comes back.
         val states = views.map { it to paramsFor(it).alpha }

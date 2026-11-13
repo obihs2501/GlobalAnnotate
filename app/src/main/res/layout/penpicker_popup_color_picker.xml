@@ -67,7 +67,7 @@
         android:layout_marginTop="28dp"
         android:layout_marginBottom="20dp"
         android:layout_marginHorizontal="@dimen/penpicker_color_picker_popup_view_page_margin_start_end">
-        <ImageView
+        <com.globalannotate.app.widget.ColorSwatchBlock
             android:id="@+id/penpicker_display_block"
             android:background="@drawable/penpicker_color_picker_color_display_block"
             android:clickable="false"
@@ -75,8 +75,7 @@
             android:layout_height="@dimen/penpicker_color_picker_popup_picker_display_width_height"
             android:layout_centerVertical="true"
             android:importantForAccessibility="no"
-            android:layout_alignParentStart="true"
-            style="?android:attr/borderlessButtonStyle"/>
+            android:layout_alignParentStart="true"/>
         <LinearLayout
             android:orientation="vertical"
             android:layout_width="match_parent"

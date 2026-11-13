@@ -39,6 +39,11 @@ class BrushPanel(context: Context, private val listener: Listener) :
         container = findViewById(R.id.property_container)
     }
 
+    /** Live update while dragging: repaint the preview, keep the rows intact. */
+    fun applyBrush(brush: BrushConfig) {
+        preview.brush = brush
+    }
+
     private fun rebuild(brush: BrushConfig) {
         preview.brush = brush
         container.removeAllViews()
@@ -79,11 +84,13 @@ class BrushPanel(context: Context, private val listener: Listener) :
         bar.progress = progress
         bar.onProgress = { p ->
             val style = brush.style
+            // Always hand the service a normalised 0..1 value; it owns the
+            // per-brush range mapping (sending absolute values here made the
+            // size map twice, which is why thickness jumped all over).
             when (kind) {
                 ParamKind.SIZE -> {
-                    val size = style.minSize + p * (style.maxSize - style.minSize)
-                    valueView.text = formatSize(size)
-                    listener.onParam(kind, size)
+                    valueView.text = formatSize(style.minSize + p * (style.maxSize - style.minSize))
+                    listener.onParam(kind, p)
                 }
                 ParamKind.SENSITIVITY -> {
                     valueView.text = "${(p * 100).toInt()}%"
@@ -91,11 +98,11 @@ class BrushPanel(context: Context, private val listener: Listener) :
                 }
                 ParamKind.TIP -> {
                     valueView.text = "${(1 + p * 3).toInt()}"
-                    listener.onParam(kind, 1f + p * 3f)
+                    listener.onParam(kind, p)
                 }
                 ParamKind.ALPHA -> {
                     valueView.text = "${(p * 100).toInt()}%"
-                    listener.onParam(kind, p * 255f)
+                    listener.onParam(kind, p)
                 }
             }
         }

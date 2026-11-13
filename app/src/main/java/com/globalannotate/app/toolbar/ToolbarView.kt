@@ -140,15 +140,12 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
         moreAnchor = moreButton
         row.addView(moreButton)
 
-        // A divider keeps 退出 physically away from ⋮ (export lives in the menu).
-        row.addView(View(context).apply {
-            setBackgroundColor(ContextCompat.getColor(context, R.color.ga_divider))
-            layoutParams = LinearLayout.LayoutParams(dp(1).toInt(), dp(26).toInt()).apply {
-                marginStart = dp(12).toInt()
-                marginEnd = dp(12).toInt()
+        // No divider: Mi Canvas keeps the row plain. The gap alone separates them.
+        row.addView(circle(R.drawable.ic_close) { listener.onQuit() }.apply {
+            layoutParams = LinearLayout.LayoutParams(dp(40).toInt(), dp(40).toInt()).apply {
+                marginStart = dp(16).toInt()
             }
         })
-        row.addView(circle(R.drawable.ic_close) { listener.onQuit() })
         addView(scroll(row))
     }
 
@@ -283,9 +280,18 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
         override fun onDraw(canvas: Canvas) {
             val cx = width / 2f
             val cy = height / 2f
-            paint.shader = SweepGradient(cx, cy, colors, null)
-            canvas.drawCircle(cx, cy, min(width, height) * 0.36f, paint)
+            val r = min(width, height) * 0.46f
+            paint.style = Paint.Style.FILL
             paint.shader = null
+            paint.color = Color.WHITE
+            canvas.drawCircle(cx, cy, r, paint)
+
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = r * 0.42f
+            paint.shader = SweepGradient(cx, cy, colors, null)
+            canvas.drawCircle(cx, cy, r * 0.78f, paint)
+            paint.shader = null
+            paint.style = Paint.Style.FILL
         }
     }
 }

@@ -29,6 +29,17 @@ class StrokePreview @JvmOverloads constructor(
         val w = width.toFloat()
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
+        // Mi Canvas clips the sample to the popup's 36dp corners.
+        val radius = 36f * resources.displayMetrics.density
+        val path = Path().apply {
+            addRoundRect(
+                android.graphics.RectF(0f, 0f, w, h),
+                floatArrayOf(radius, radius, radius, radius, 0f, 0f, 0f, 0f),
+                Path.Direction.CW,
+            )
+        }
+        val saved = canvas.save()
+        canvas.clipPath(path)
         val style = brush.style
         val c = brush.effectiveColor
         paint.color = c
@@ -59,6 +70,7 @@ class StrokePreview @JvmOverloads constructor(
                 color = Color.argb(80, 255, 255, 255)
             })
         }
+        canvas.restoreToCount(saved)
         if (style.grain) {
             grain.color = Color.argb(
                 (Color.alpha(c) * 0.45f).toInt(), Color.red(c), Color.green(c), Color.blue(c),

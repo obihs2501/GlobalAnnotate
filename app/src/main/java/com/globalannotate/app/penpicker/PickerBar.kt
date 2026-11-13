@@ -54,6 +54,19 @@ open class PickerBar @JvmOverloads constructor(
     /** Override for a coloured thumb (alpha page uses the current colour). */
     open fun thumbColor(): Int = Color.WHITE
 
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        // The Mi Canvas layouts give sliders wrap_content; without this they
+        // measured to zero and the whole opacity row vanished.
+        val width = MeasureSpec.getSize(widthMeasureSpec)
+        val desired = (28 * resources.displayMetrics.density).toInt()
+        val height = if (MeasureSpec.getMode(heightMeasureSpec) == MeasureSpec.EXACTLY) {
+            MeasureSpec.getSize(heightMeasureSpec)
+        } else {
+            desired
+        }
+        setMeasuredDimension(width, height)
+    }
+
     override fun onDraw(canvas: Canvas) {
         val h = height.toFloat()
         val trackH = h * 0.43f

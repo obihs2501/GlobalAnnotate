@@ -26,9 +26,9 @@ data class BrushConfig(
     companion object {
         /** The four quick colours on the main bar, 2x2 like Mi Canvas. */
         val QUICK_COLORS = listOf(
-            Color.parseColor("#D93025"),
-            Color.parseColor("#F9AB00"),
-            Color.parseColor("#1A73E8"),
+            Color.parseColor("#E5464A"),
+            Color.parseColor("#F4D153"),
+            Color.parseColor("#3F7FEB"),
         )
 
         /** Full palette used by the colour panel. */

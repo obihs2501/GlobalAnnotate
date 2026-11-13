@@ -41,7 +41,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
     private val gridPage: View
     private val sliderPage: View
     private val grid: ColorPickPanelView
-    private val display: ImageView
+    private val display: ColorSwatchBlock
     private val gridAlpha: ColorPickerAlphaView
     private val hueBar: ColorPickerHueView
     private val satBar: ColorPickerSaturationView
@@ -49,6 +49,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
     private val sliderAlpha: ColorPickerAlphaView
     private val alphaLabel: TextView
     private val swatchRows = mutableListOf<LinearLayout>()
+    private val recentSwatches = mutableListOf<SwatchView>()
 
     private var hsv = floatArrayOf(0f, 0.75f, 0.85f)
     private var alpha = 255
@@ -134,6 +135,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
                         emitColor()
                     }
                 }
+                recentSwatches.add(swatch)
                 row.addView(swatch)
             }
         }
@@ -150,7 +152,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
     }
 
     private fun syncViews(argb: Int) {
-        display.setBackgroundColor(argb)
+        display.color = argb
         grid.selectedColor = Color.rgb(Color.red(argb), Color.green(argb), Color.blue(argb))
         gridAlpha.progress = alpha / 255f
         gridAlpha.baseColor = Color.rgb(Color.red(argb), Color.green(argb), Color.blue(argb))
@@ -162,6 +164,13 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
         lightBar.baseColor = Color.HSVToColor(floatArrayOf(hsv[0], hsv[1], 1f))
         lightBar.progress = hsv[2]
         alphaLabel.text = "${(alpha * 100 / 255)}%"
+        val rgb = Color.rgb(Color.red(argb), Color.green(argb), Color.blue(argb))
+        swatchRows.forEach { row ->
+            for (i in 0 until row.childCount) {
+                (row.getChildAt(i) as? SwatchView)?.checked = false
+            }
+        }
+        recentSwatches.forEach { it.checked = it.color == rgb }
     }
 
     private fun dp(value: Int): Int = (value * density).toInt()
