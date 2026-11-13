@@ -159,6 +159,9 @@ object HelperMain {
         region.op(excluded, Region.Op.DIFFERENCE)
         handle.touchableRegion.set(region)
         val t = SurfaceControl.Transaction()
+        // A buffer-less layer has no input bounds of its own; without a crop
+        // SurfaceFlinger clears the touchable region.
+        t.setCrop(surface, screen)
         handle.setTrustedOverlay(t, surface, true)
         setInputWindowInfo.invoke(t, surface, handle)
         t.apply()
