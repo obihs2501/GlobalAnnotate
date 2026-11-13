@@ -63,8 +63,6 @@ class AnnotationService : Service(),
     private lateinit var toolbarParams: WindowManager.LayoutParams
     private lateinit var orb: BrushGlyph
     private lateinit var orbParams: WindowManager.LayoutParams
-    private lateinit var exitButton: IconButton
-    private lateinit var exitParams: WindowManager.LayoutParams
     private lateinit var palette: RadialPaletteView
     private lateinit var paletteParams: WindowManager.LayoutParams
     private lateinit var colorPanel: ColorPanel
@@ -123,13 +121,6 @@ class AnnotationService : Service(),
             elevation = dp(6).toFloat()
             setOnClickListener { toggleToolbar() }
         }
-        exitButton = IconButton(this).apply {
-            iconRes = R.drawable.ic_back
-            contentDescription = "退出批注"
-            setBackgroundResource(R.drawable.bg_orb)
-            elevation = dp(6).toFloat()
-            onTap = { stopSelf() }
-        }
         palette = RadialPaletteView(this).apply { listener = this@AnnotationService }
         colorPanel = ColorPanel(this, this)
         brushPanel = BrushPanel(this, this)
@@ -153,10 +144,6 @@ class AnnotationService : Service(),
             x = dp(24)
             y = dp(24)
         }
-        exitParams = params(dp(44), dp(44), passiveFlags).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = dp(14)
-            y = dp(14)
         }
         paletteParams = params(MATCH, MATCH, passiveFlags)
         colorPanelParams = anchoredParams(dp(360), dp(560), passiveFlags)
@@ -174,7 +161,6 @@ class AnnotationService : Service(),
         windowManager.addView(gesturePanel, gesturePanelParams)
         windowManager.addView(moreMenu, moreMenuParams)
         windowManager.addView(orb, orbParams)
-        windowManager.addView(exitButton, exitParams)
 
         panels.forEach { it.visibility = View.GONE }
         restoreBrush()
@@ -213,7 +199,6 @@ class AnnotationService : Service(),
         active = value
         Session.active = value
         canvas.visibility = if (value) View.VISIBLE else View.GONE
-        exitButton.visibility = if (value) View.VISIBLE else View.GONE
         orb.visibility = if (value) View.VISIBLE else View.GONE
         applyToolbarVisibility()
         if (!value) {
@@ -564,7 +549,7 @@ class AnnotationService : Service(),
     }
 
     private suspend fun <T> withOverlaysHidden(block: suspend () -> T): T {
-        val views = listOf(canvas, toolbar, orb, exitButton, palette) + panels
+        val views = listOf(canvas, toolbar, orb, palette) + panels
         val states = views.map { it to it.visibility }
         states.forEach { (view, _) -> view.visibility = View.INVISIBLE }
         return try {
@@ -679,7 +664,7 @@ class AnnotationService : Service(),
         notifyModule(Actions.SET_SPLIT_MODE, false)
         penEngine?.disconnect()
         penEngine = null
-        (listOf(canvas, toolbar, palette, orb, exitButton) + panels).forEach { view ->
+        (listOf(canvas, toolbar, palette, orb) + panels).forEach { view ->
             if (view.isAttachedToWindow) runCatching { windowManager.removeView(view) }
         }
         if (Session.service === this) Session.service = null
