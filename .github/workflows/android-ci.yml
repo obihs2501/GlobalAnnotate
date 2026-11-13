@@ -21,7 +21,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
 
       - name: Build both APKs
-        run: ./gradlew :app:assembleDebug :xposed:assembleDebug
+        run: bash ./gradlew :app:assembleDebug :xposed:assembleDebug
 
       - uses: actions/upload-artifact@v4
         with:
