@@ -6,9 +6,11 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.drawable.Drawable
 import android.view.View
+import androidx.core.content.ContextCompat
+import com.globalannotate.app.R
 import kotlin.math.min
 
-/** Circular glass icon button with a red accent ring when checked. */
+/** Circular icon button using the shared theme tokens (no accent ring). */
 class IconButton(context: Context) : View(context) {
 
     var iconRes: Int = 0
@@ -20,11 +22,7 @@ class IconButton(context: Context) : View(context) {
     var onTap: (() -> Unit)? = null
 
     private val density = resources.displayMetrics.density
-    private val backgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        color = Color.parseColor("#4A9BFF")
-    }
+    private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private var drawable: Drawable? = null
 
     init {
@@ -36,24 +34,21 @@ class IconButton(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         val cx = width / 2f
         val cy = height / 2f
-        val radius = min(width, height) * 0.44f
-        backgroundPaint.color = if (checked) Color.argb(90, 255, 255, 255) else Color.argb(38, 255, 255, 255)
-        canvas.drawCircle(cx, cy, radius, backgroundPaint)
+        val radius = min(width, height) * 0.5f
+        bgPaint.color = ContextCompat.getColor(context, R.color.ga_circle_bg)
+        canvas.drawCircle(cx, cy, radius, bgPaint)
 
-        val icon = context.getDrawable(iconRes)?.mutate()
+        val icon = ContextCompat.getDrawable(context, iconRes)?.mutate() ?: return
         drawable = icon
-        icon ?: return
-        icon.setTint(if (checked) Color.parseColor("#4A9BFF") else Color.parseColor("#E8EAED"))
-        val size = (min(width, height) - dp(12).toInt()).coerceAtLeast(1)
+        icon.setTint(
+            if (checked) ContextCompat.getColor(context, R.color.ga_accent)
+            else ContextCompat.getColor(context, R.color.ga_icon_tint),
+        )
+        val size = (min(width, height) - dp(14).toInt()).coerceAtLeast(1)
         val left = (width - size) / 2
         val top = (height - size) / 2
         icon.setBounds(left, top, left + size, top + size)
         icon.draw(canvas)
-
-        if (checked) {
-            ringPaint.strokeWidth = 2.5f * density
-            canvas.drawCircle(cx, cy, radius, ringPaint)
-        }
     }
 
     private fun dp(value: Int): Float = value * density

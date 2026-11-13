@@ -7,11 +7,12 @@ import android.graphics.Paint
 import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
+import androidx.core.content.ContextCompat
 import com.globalannotate.app.R
 import com.globalannotate.app.model.BrushConfig
 import kotlin.math.min
 
-/** A single round colour swatch with a selection ring. */
+/** A single round colour swatch with an accent selection ring. */
 class SwatchView(context: Context, val color: Int) : View(context) {
 
     var checked: Boolean = false
@@ -20,14 +21,12 @@ class SwatchView(context: Context, val color: Int) : View(context) {
     private val density = resources.displayMetrics.density
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-    init {
-        isClickable = true
-    }
+    init { isClickable = true }
 
     override fun onDraw(canvas: Canvas) {
         val cx = width / 2f
         val cy = height / 2f
-        val radius = min(width, height) * 0.33f
+        val radius = min(width, height) * 0.34f
 
         paint.style = Paint.Style.FILL
         paint.color = color
@@ -35,18 +34,18 @@ class SwatchView(context: Context, val color: Int) : View(context) {
 
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 1.5f * density
-        paint.color = Color.argb(60, 0, 0, 0)
+        paint.color = ContextCompat.getColor(context, R.color.ga_divider)
         canvas.drawCircle(cx, cy, radius, paint)
 
         if (checked) {
             paint.strokeWidth = 2.5f * density
-            paint.color = Color.parseColor("#FF5B52")
+            paint.color = ContextCompat.getColor(context, R.color.ga_accent)
             canvas.drawCircle(cx, cy, min(width, height) * 0.46f, paint)
         }
     }
 }
 
-/** Horizontal palette + eyedropper button. */
+/** Horizontal palette + eyedropper button, used inside the colour popup. */
 class ColorStrip(
     context: Context,
     private val onColor: (Int) -> Unit,
@@ -54,14 +53,13 @@ class ColorStrip(
 ) : LinearLayout(context) {
 
     private val swatches = mutableListOf<SwatchView>()
-    private var currentColor: Int = BrushConfig.PALETTE[3]
     private val density = resources.displayMetrics.density
 
     init {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        val item = dp(27).toInt()
-        val gap = dp(3).toInt()
+        val item = dp(28).toInt()
+        val gap = dp(2).toInt()
         for (c in BrushConfig.PALETTE) {
             val swatch = SwatchView(context, c)
             swatch.setOnClickListener {
@@ -71,15 +69,16 @@ class ColorStrip(
             swatches.add(swatch)
             addView(swatch, LayoutParams(item, item).apply { marginStart = gap; marginEnd = gap })
         }
-        val dropper = IconButton(context).apply {
+        addView(IconButton(context).apply {
             iconRes = R.drawable.ic_pipette
             onTap = { onPipette() }
-        }
-        addView(dropper, LayoutParams(dp(34).toInt(), dp(34).toInt()).apply { marginStart = gap })
+            layoutParams = LayoutParams(dp(36).toInt(), dp(36).toInt()).apply {
+                marginStart = dp(4).toInt()
+            }
+        })
     }
 
     fun setColor(color: Int) {
-        currentColor = color
         swatches.forEach { it.checked = it.color == color }
         invalidate()
     }
@@ -94,16 +93,13 @@ class BrushPreview(context: Context) : View(context) {
         set(value) { field = value; invalidate() }
 
     private val density = resources.displayMetrics.density
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        strokeCap = Paint.Cap.ROUND
-    }
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeCap = Paint.Cap.ROUND }
 
     override fun onDraw(canvas: Canvas) {
-        val c = brush.color
-        val a = brush.alpha
-        paint.color = Color.argb(a, Color.red(c), Color.green(c), Color.blue(c))
+        val c = brush.effectiveColor
+        paint.color = c
         val maxWidth = (height * 0.55f).coerceAtLeast(2f)
-        paint.strokeWidth = (brush.style.toPixels(brush.size, density)).coerceIn(2f, maxWidth)
+        paint.strokeWidth = brush.style.toPixels(brush.size, density).coerceIn(2f, maxWidth)
         val pad = width * 0.12f
         canvas.drawLine(pad, height / 2f, width - pad, height / 2f, paint)
     }

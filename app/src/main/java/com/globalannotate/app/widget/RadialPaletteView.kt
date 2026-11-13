@@ -8,6 +8,8 @@ import android.graphics.PointF
 import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
+import androidx.core.content.ContextCompat
+import com.globalannotate.app.R
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
@@ -49,7 +51,7 @@ class RadialPaletteView(context: Context) : View(context) {
     private val sectorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val pressedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = Color.parseColor("#E5F2FF")
+        color = ContextCompat.getColor(context, R.color.ga_tab_selected)
     }
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -59,15 +61,15 @@ class RadialPaletteView(context: Context) : View(context) {
     private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val holePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = Color.parseColor("#F7FBFF")
+        color = ContextCompat.getColor(context, R.color.ga_panel_bg)
     }
     private val holeRing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        color = Color.parseColor("#0D84FF")
+        color = ContextCompat.getColor(context, R.color.ga_accent)
         strokeWidth = dp(2).toFloat()
     }
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.parseColor("#3C4043")
+        color = ContextCompat.getColor(context, R.color.ga_text_primary)
         textSize = dp(12).toFloat()
         textAlign = Paint.Align.CENTER
     }
@@ -105,7 +107,7 @@ class RadialPaletteView(context: Context) : View(context) {
 
         for (i in labels.indices) {
             val start = -90f + i * 45f - 22.5f
-            sectorPaint.color = Color.parseColor("#F7F9FC")
+            sectorPaint.color = ContextCompat.getColor(context, R.color.ga_panel_bg)
             canvas.drawArc(rect, start, 45f, true, if (i == pressedIndex) pressedPaint else sectorPaint)
             canvas.drawArc(rect, start, 45f, true, ringPaint)
 

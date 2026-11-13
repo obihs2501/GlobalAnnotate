@@ -5,12 +5,12 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.SweepGradient
-import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import androidx.core.content.ContextCompat
 import com.globalannotate.app.OverlayMode
 import com.globalannotate.app.R
 import com.globalannotate.app.model.BrushConfig
@@ -21,19 +21,18 @@ import com.globalannotate.app.widget.SwatchView
 import kotlin.math.min
 
 /**
- * Single-row bottom capsule modelled on Mi Canvas. There is deliberately NO
- * exit button here (the original uses a separate back arrow), which also keeps
- * the destructive action far away from the ⋮ menu and the export items.
- * Quick colours are a 2x2 grid so the bar never needs horizontal scrolling.
+ * Compact single-row capsule modelled on Mi Canvas: undo/redo, 7 pens,
+ * a 2x2 quick-colour grid, the ⋮ menu — and nothing else. The exit action is a
+ * separate back button, so destructive and export actions never sit adjacent.
+ * Selection only lifts the glyph; no ring is drawn.
  */
 class ToolbarView(context: Context, private val listener: Listener) : LinearLayout(context) {
 
     interface Listener {
-        fun onStyle(style: PenStyle)
+        fun onStyle(style: PenStyle, anchorX: Int)
         fun onColor(color: Int)
-        fun onOpenColorPanel()
-        fun onOpenBrushPanel()
-        fun onOpenMoreMenu()
+        fun onOpenColorPanel(anchorX: Int)
+        fun onOpenMoreMenu(anchorX: Int)
         fun onUndo()
         fun onRedo()
         fun onCollapse()
@@ -53,18 +52,15 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
     init {
         orientation = VERTICAL
         setBackgroundResource(R.drawable.bg_toolbar)
-        elevation = dp(8)
-        setPadding(dp(14).toInt(), dp(6).toInt(), dp(14).toInt(), dp(10).toInt())
+        elevation = dp(6)
+        setPadding(dp(8).toInt(), dp(5).toInt(), dp(8).toInt(), dp(7).toInt())
 
         val handle = View(context).apply {
-            background = GradientDrawable().apply {
-                setColor(Color.argb(90, 255, 255, 255))
-                cornerRadius = dp(2)
-            }
+            setBackgroundColor(ContextCompat.getColor(context, R.color.ga_divider))
             setOnClickListener { listener.onCollapse() }
-            layoutParams = LinearLayout.LayoutParams(dp(38).toInt(), dp(4).toInt()).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(32).toInt(), dp(3).toInt()).apply {
                 gravity = Gravity.CENTER_HORIZONTAL
-                bottomMargin = dp(6).toInt()
+                bottomMargin = dp(4).toInt()
             }
         }
         addView(handle)
@@ -77,26 +73,26 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
         redoButton = circle(R.drawable.ic_redo) { listener.onRedo() }
         row.addView(undoButton)
         row.addView(redoButton)
-        row.addView(space(dp(8)))
 
         for (style in styles) {
             val glyph = BrushGlyph(context).apply {
                 this.style = style
-                translationY = dp(8)
+                translationY = dp(6)
                 setOnClickListener {
-                    if (checked) listener.onOpenBrushPanel() else listener.onStyle(style)
+                    listener.onStyle(style, centerOnScreen(this))
                 }
-                layoutParams = LinearLayout.LayoutParams(dp(46).toInt(), dp(84).toInt())
+                layoutParams = LinearLayout.LayoutParams(dp(40).toInt(), dp(72).toInt())
             }
             glyphs[style] = glyph
             row.addView(glyph)
         }
 
-        row.addView(space(dp(10)))
-        // 2x2 colour grid: no horizontal scrolling needed.
+        // 2x2 quick colours, matching Mi Canvas (3 fixed + rainbow).
         val grid = LinearLayout(context).apply {
             orientation = VERTICAL
-            layoutParams = LinearLayout.LayoutParams(dp(76).toInt(), dp(76).toInt())
+            layoutParams = LinearLayout.LayoutParams(dp(62).toInt(), dp(62).toInt()).apply {
+                marginStart = dp(6).toInt()
+            }
         }
         for (r in 0..1) {
             val line = LinearLayout(context).apply {
@@ -115,15 +111,21 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
                     line.addView(swatch, cell)
                 } else {
                     line.addView(RainbowSwatch(context).apply {
-                        onTap = { listener.onOpenColorPanel() }
+                        onTap = { listener.onOpenColorPanel(centerOnScreen(this)) }
                     }, cell)
                 }
             }
             grid.addView(line)
         }
         row.addView(grid)
-        row.addView(space(dp(8)))
-        row.addView(circle(R.drawable.ic_more) { listener.onOpenMoreMenu() })
+
+        row.addView(circle(R.drawable.ic_more) {
+            listener.onOpenMoreMenu(centerOnScreen(it))
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(dp(36).toInt(), dp(36).toInt()).apply {
+                marginStart = dp(6).toInt()
+            }
+        })
         addView(scroll(row))
     }
 
@@ -131,11 +133,17 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
         glyphs.forEach { (style, glyph) ->
             glyph.color = brush.color
             glyph.checked = style == brush.style
-            glyph.animate().translationY(if (glyph.checked) -dp(6) else dp(8)).setDuration(150).start()
+            glyph.animate().translationY(if (glyph.checked) -dp(4) else dp(6)).setDuration(140).start()
         }
         quickSwatches.forEach { it.checked = it.color == brush.color }
         undoButton.enabledVisual = canUndo
         redoButton.enabledVisual = canRedo
+    }
+
+    private fun centerOnScreen(view: View): Int {
+        val location = IntArray(2)
+        view.getLocationOnScreen(location)
+        return location[0] + view.width / 2
     }
 
     private fun circle(icon: Int, tap: () -> Unit): IconButton =
@@ -143,7 +151,7 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
             iconRes = icon
             onTap = tap
             contentDescription = resources.getResourceEntryName(icon)
-            layoutParams = LinearLayout.LayoutParams(dp(40).toInt(), dp(40).toInt())
+            layoutParams = LinearLayout.LayoutParams(dp(36).toInt(), dp(36).toInt())
         }
 
     private fun scroll(child: View): HorizontalScrollView =
@@ -156,20 +164,17 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
             ))
         }
 
-    private fun space(size: Float): View = View(context).apply {
-        layoutParams = LinearLayout.LayoutParams(size.toInt(), 1)
-    }
-
     private fun dp(value: Int): Float = value * density
 
     private class RainbowSwatch(context: Context) : View(context) {
         var onTap: (() -> Unit)? = null
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val colors = intArrayOf(
-            Color.parseColor("#F44336"), Color.parseColor("#FFEB3B"),
-            Color.parseColor("#4CAF50"), Color.parseColor("#00BCD4"),
-            Color.parseColor("#2196F3"), Color.parseColor("#9C27B0"),
-            Color.parseColor("#F44336"),
+            Color.parseColor("#E7E040"), Color.parseColor("#EEAA3C"),
+            Color.parseColor("#E8403B"), Color.parseColor("#B33ED5"),
+            Color.parseColor("#694AE8"), Color.parseColor("#3CCAE7"),
+            Color.parseColor("#3CE885"), Color.parseColor("#89E743"),
+            Color.parseColor("#E7E040"),
         )
 
         init {

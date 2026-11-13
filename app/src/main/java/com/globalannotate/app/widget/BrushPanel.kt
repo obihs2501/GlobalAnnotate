@@ -10,19 +10,19 @@ import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import com.globalannotate.app.R
 import com.globalannotate.app.model.BrushConfig
 import com.globalannotate.app.model.PenStyle
 
 /**
- * Pen settings popup. Which rows appear is driven by the pen type, matching
- * Mi Canvas' `m24536I1lii()`:
- *   - 粗细 (size): every pen, range = that pen's own min..max
- *   - 不透明度 (alpha): every pen
- *   - 灵敏度: fountain pen ("钢笔灵敏度") and pencil ("铅笔灵敏度") only
- *   - 笔尖大小: fountain pen only
- * The eraser never opens this panel.
+ * Pen settings popup, structure copied from Mi Canvas
+ * `penpicker_popup_layout_pen_set.xml`: 110dp preview image on top, then a
+ * scrolling property container with 20dp horizontal padding.
+ * Rows follow `m24536I1lii()`: size + alpha always; sensitivity for the
+ * fountain pen and pencil; tip size for the fountain pen only.
  */
 class BrushPanel(context: Context, private val listener: Listener) : LinearLayout(context) {
 
@@ -36,8 +36,6 @@ class BrushPanel(context: Context, private val listener: Listener) : LinearLayou
     private val density = resources.displayMetrics.density
     private val preview: StrokePreview
     private val rows = LinearLayout(context)
-    private val sliders = mutableMapOf<ParamKind, TrackSlider>()
-    private val valueViews = mutableMapOf<ParamKind, TextView>()
 
     var brush: BrushConfig = BrushConfig()
         set(value) { field = value; rebuild(value) }
@@ -46,30 +44,22 @@ class BrushPanel(context: Context, private val listener: Listener) : LinearLayou
         orientation = VERTICAL
         setBackgroundResource(R.drawable.bg_panel)
         elevation = dp(8)
-        setPadding(dp(20).toInt(), dp(14).toInt(), dp(20).toInt(), dp(18).toInt())
-
-        val head = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        head.addView(TextView(context).apply {
-            text = "笔刷设置"
-            textSize = 14f
-            setTextColor(Color.parseColor("#E8EAED"))
-            layoutParams = LinearLayout.LayoutParams(0, dp(36).toInt(), 1f)
-        })
-        head.addView(IconButton(context).apply {
-            iconRes = R.drawable.ic_close
-            onTap = { listener.onClose() }
-            layoutParams = LinearLayout.LayoutParams(dp(34).toInt(), dp(34).toInt())
-        })
-        addView(head)
+        layoutParams = LayoutParams(dp(288).toInt(), WRAP)
 
         preview = StrokePreview(context).apply {
-            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, dp(84).toInt())
+            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, dp(110).toInt())
         }
         addView(preview)
-        addView(rows, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+
+        rows.orientation = VERTICAL
+        val scroller = ScrollView(context).apply {
+            isVerticalScrollBarEnabled = false
+            overScrollMode = OVER_SCROLL_NEVER
+            setPadding(dp(20).toInt(), 0, dp(20).toInt(), dp(16).toInt())
+            addView(rows, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f)
+        }
+        addView(scroller)
     }
 
     private fun rebuild(brush: BrushConfig) {
@@ -77,8 +67,6 @@ class BrushPanel(context: Context, private val listener: Listener) : LinearLayou
         val style = brush.style
         if (style.isEraser) return
         rows.removeAllViews()
-        sliders.clear()
-        valueViews.clear()
 
         addSlider(ParamKind.SIZE, "笔画粗细", sizeProgress(brush, style))
         if (style.showSensitivity) {
@@ -100,20 +88,13 @@ class BrushPanel(context: Context, private val listener: Listener) : LinearLayou
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        head.addView(TextView(context).apply {
-            text = label
-            textSize = 13f
-            setTextColor(Color.parseColor("#E8EAED"))
+        head.addView(bodyText(label).apply {
             layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
         })
-        val valueView = TextView(context).apply {
-            text = ""
-            textSize = 13f
-            setTextColor(Color.parseColor("#C9CDD4"))
-        }
+        val valueView = bodyText("")
         head.addView(valueView)
         rows.addView(head, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
-            topMargin = dp(12).toInt()
+            topMargin = dp(14).toInt()
         })
 
         val slider = TrackSlider(context).apply {
@@ -126,21 +107,25 @@ class BrushPanel(context: Context, private val listener: Listener) : LinearLayou
                 valueView.text = display(kind, p)
                 listener.onParam(kind, p)
             }
-            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, dp(28).toInt())
+            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, dp(26).toInt())
         }
-        rows.addView(slider)
-        sliders[kind] = slider
-        valueViews[kind] = valueView
+        rows.addView(slider, LinearLayout.LayoutParams(MATCH_PARENT, dp(26).toInt()).apply {
+            topMargin = dp(4).toInt()
+        })
         valueView.text = display(kind, initial)
+    }
+
+    private fun bodyText(text: String): TextView = TextView(context).apply {
+        this.text = text
+        textSize = 14f
+        setTextColor(ContextCompat.getColor(context, R.color.ga_text_primary))
+        includeFontPadding = false
     }
 
     private fun display(kind: ParamKind, p: Float): String {
         val style = brush.style
         return when (kind) {
-            ParamKind.SIZE -> {
-                val span = (style.maxSize - style.minSize)
-                (style.minSize + (p * span).toInt()).toString()
-            }
+            ParamKind.SIZE -> (style.minSize + (p * (style.maxSize - style.minSize)).toInt()).toString()
             ParamKind.SENSITIVITY -> "${(p * 100f).toInt()}%"
             ParamKind.TIP -> (1 + (p * 3f).toInt()).toString()
             ParamKind.ALPHA -> "${(p * 100f).toInt()}%"
@@ -149,14 +134,11 @@ class BrushPanel(context: Context, private val listener: Listener) : LinearLayou
 
     private fun dp(value: Int): Float = value * density
 
-    /** Live preview of the actual stroke texture for the current pen. */
     private class StrokePreview(context: Context) : View(context) {
         var brush: BrushConfig = BrushConfig()
             set(value) { field = value; invalidate() }
 
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-        }
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
         private val path = Path()
         private val grain = Paint(Paint.ANTI_ALIAS_FLAG)
 
@@ -169,33 +151,32 @@ class BrushPanel(context: Context, private val listener: Listener) : LinearLayou
             paint.color = c
             paint.strokeCap = if (style.squareCap) Paint.Cap.SQUARE else Paint.Cap.ROUND
             paint.strokeWidth = style.toPixels(brush.size, resources.displayMetrics.density)
-                .coerceIn(1.5f, h * 0.4f)
+                .coerceIn(1.5f, h * 0.35f)
             path.reset()
-            path.moveTo(w * 0.08f, h * 0.62f)
-            path.cubicTo(w * 0.30f, h * 0.92f, w * 0.44f, h * 0.12f, w * 0.64f, h * 0.42f)
-            path.cubicTo(w * 0.78f, h * 0.60f, w * 0.84f, h * 0.20f, w * 0.93f, h * 0.34f)
+            path.moveTo(w * 0.10f, h * 0.62f)
+            path.cubicTo(w * 0.30f, h * 0.92f, w * 0.44f, h * 0.14f, w * 0.64f, h * 0.44f)
+            path.cubicTo(w * 0.78f, h * 0.62f, w * 0.84f, h * 0.24f, w * 0.92f, h * 0.36f)
             if (style.glow) {
-                val halo = Paint(paint).apply { alpha = 70; strokeWidth = paint.strokeWidth * 2.4f }
-                canvas.drawPath(path, halo)
+                canvas.drawPath(path, Paint(paint).apply { alpha = 70; strokeWidth = paint.strokeWidth * 2.4f })
             }
             canvas.drawPath(path, paint)
             if (style.inkHighlight) {
-                val sheen = Paint(paint).apply {
+                canvas.drawPath(path, Paint(paint).apply {
                     strokeWidth = paint.strokeWidth * 0.3f
                     color = Color.argb(80, 255, 255, 255)
-                }
-                canvas.drawPath(path, sheen)
+                })
             }
             if (style.grain) {
                 grain.color = Color.argb(
-                    (Color.alpha(c) * 0.45f).toInt(),
-                    Color.red(c), Color.green(c), Color.blue(c),
+                    (Color.alpha(c) * 0.45f).toInt(), Color.red(c), Color.green(c), Color.blue(c),
                 )
                 var t = 0f
                 while (t < 1f) {
-                    val x = w * (0.08f + t * 0.85f)
-                    val y = h * (0.55f - 0.25f * kotlin.math.sin(t * 9.4f))
-                    canvas.drawCircle(x, y, 0.6f * resources.displayMetrics.density, grain)
+                    canvas.drawCircle(
+                        w * (0.10f + t * 0.82f),
+                        h * (0.56f - 0.22f * kotlin.math.sin(t * 9.4f)),
+                        0.6f * resources.displayMetrics.density, grain,
+                    )
                     t += 0.012f
                 }
             }

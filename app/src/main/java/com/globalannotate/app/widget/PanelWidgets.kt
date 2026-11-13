@@ -9,8 +9,14 @@ import android.graphics.RectF
 import android.graphics.Shader
 import android.view.MotionEvent
 import android.view.View
+import androidx.core.content.ContextCompat
+import com.globalannotate.app.R
 
-/** Rounded track with a ring knob, matching Mi Canvas sliders. */
+/**
+ * Slider matching Mi Canvas' SelectPropertyView / SelectAlphaView:
+ * rounded track, ring knob (filled white knob for alpha), optional checkerboard
+ * behind the alpha gradient.
+ */
 class TrackSlider(context: Context) : View(context) {
 
     var progress: Float = 0.5f
@@ -28,7 +34,7 @@ class TrackSlider(context: Context) : View(context) {
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 3f * density
-        color = Color.parseColor("#3B87FF")
+        color = ContextCompat.getColor(context, R.color.ga_accent)
     }
     private val checkerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
@@ -38,7 +44,7 @@ class TrackSlider(context: Context) : View(context) {
         val w = width.toFloat()
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
-        val trackH = h * 0.52f
+        val trackH = h * 0.5f
         val top = (h - trackH) / 2f
         rect.set(0f, top, w, top + trackH)
 
@@ -46,13 +52,10 @@ class TrackSlider(context: Context) : View(context) {
             val cell = trackH / 2f
             var x = 0f
             while (x < w) {
-                checkerPaint.color = if (((x / cell).toInt() % 2) == 0) {
-                    Color.parseColor("#9A9A9A")
-                } else Color.parseColor("#D0D0D0")
+                val even = ((x / cell).toInt() % 2) == 0
+                checkerPaint.color = if (even) Color.parseColor("#9A9A9A") else Color.parseColor("#D0D0D0")
                 canvas.drawRect(x, top, (x + cell).coerceAtMost(w), top + cell, checkerPaint)
-                checkerPaint.color = if (((x / cell).toInt() % 2) == 0) {
-                    Color.parseColor("#D0D0D0")
-                } else Color.parseColor("#9A9A9A")
+                checkerPaint.color = if (even) Color.parseColor("#D0D0D0") else Color.parseColor("#9A9A9A")
                 canvas.drawRect(x, top + cell, (x + cell).coerceAtMost(w), top + trackH, checkerPaint)
                 x += cell
             }
@@ -61,12 +64,12 @@ class TrackSlider(context: Context) : View(context) {
             )
         } else {
             trackPaint.shader = null
-            trackPaint.color = Color.parseColor("#4A4A4E")
+            trackPaint.color = ContextCompat.getColor(context, R.color.ga_tab_bg)
         }
         canvas.drawRoundRect(rect, trackH / 2f, trackH / 2f, trackPaint)
 
         val cx = w * progress
-        val radius = trackH * 0.44f
+        val radius = trackH * 0.42f
         if (knobFilled) {
             knobPaint.color = Color.WHITE
             knobPaint.style = Paint.Style.FILL
@@ -106,9 +109,7 @@ class HueGrid(context: Context, private val onPick: (Int) -> Unit) : View(contex
     fun colorAt(col: Int, row: Int): Int {
         val hue = col * 360f / cols
         val t = row / (rows - 1f)
-        val saturation = 0.10f + t * 0.86f
-        val value = 1f - t * 0.52f
-        return Color.HSVToColor(floatArrayOf(hue, saturation, value))
+        return Color.HSVToColor(floatArrayOf(hue, 0.10f + t * 0.86f, 1f - t * 0.52f))
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -161,8 +162,7 @@ class HueBar(context: Context, private val onPick: (Int) -> Unit) : View(context
             height * 0.25f, height * 0.25f, paint,
         )
         paint.shader = null
-        val x = width * (hue / 360f)
-        canvas.drawCircle(x, height / 2f, height * 0.35f, knob)
+        canvas.drawCircle(width * (hue / 360f), height / 2f, height * 0.35f, knob)
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {

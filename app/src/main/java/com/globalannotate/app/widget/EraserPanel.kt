@@ -8,15 +8,17 @@ import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import com.globalannotate.app.R
 import com.globalannotate.app.model.BrushConfig
 import com.globalannotate.app.model.EraserMode
 import com.globalannotate.app.model.PenStyle
 
 /**
- * Eraser popup, mirroring Mi Canvas' `EraserPopupWindow`:
- * two tabs (像素橡皮 / 笔画橡皮) and a single size slider (4..32).
- * No sensitivity and no opacity — the eraser does not expose them.
+ * Eraser popup, structure copied from Mi Canvas
+ * `penpicker_popup_layout_eraser_set.xml`: FilterSortView tabs on top, then the
+ * content area, 20dp horizontal padding. Only the two tabs (像素 / 笔画) and a
+ * single size slider (4..32) — no sensitivity, no opacity.
  */
 class EraserPanel(context: Context, private val listener: Listener) : LinearLayout(context) {
 
@@ -39,60 +41,35 @@ class EraserPanel(context: Context, private val listener: Listener) : LinearLayo
         orientation = VERTICAL
         setBackgroundResource(R.drawable.bg_panel)
         elevation = dp(8)
-        setPadding(dp(18).toInt(), dp(12).toInt(), dp(18).toInt(), dp(16).toInt())
-
-        val head = LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        head.addView(TextView(context).apply {
-            text = "橡皮"
-            textSize = 14f
-            setTextColor(Color.parseColor("#E8EAED"))
-            layoutParams = LinearLayout.LayoutParams(0, dp(34).toInt(), 1f)
-        })
-        head.addView(IconButton(context).apply {
-            iconRes = R.drawable.ic_close
-            onTap = { listener.onClose() }
-            layoutParams = LinearLayout.LayoutParams(dp(32).toInt(), dp(32).toInt())
-        })
-        addView(head)
+        setPadding(dp(20).toInt(), dp(20).toInt(), dp(20).toInt(), dp(16).toInt())
+        layoutParams = LayoutParams(dp(288).toInt(), WRAP)
 
         val tabRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#1C1C1E"))
-                cornerRadius = dp(16)
+                setColor(ContextCompat.getColor(context, R.color.ga_tab_bg))
+                cornerRadius = dp(20)
             }
-            setPadding(dp(4).toInt(), dp(4).toInt(), dp(4).toInt(), dp(4).toInt())
+            setPadding(dp(3).toInt(), dp(3).toInt(), dp(3).toInt(), dp(3).toInt())
         }
         pixelTab = tab("像素橡皮") { listener.onMode(EraserMode.PIXEL) }
         strokeTab = tab("笔画橡皮") { listener.onMode(EraserMode.STROKE) }
         tabRow.addView(pixelTab)
         tabRow.addView(strokeTab)
-        addView(tabRow, LinearLayout.LayoutParams(MATCH_PARENT, dp(38).toInt()).apply {
-            topMargin = dp(10).toInt()
-        })
+        addView(tabRow, LinearLayout.LayoutParams(MATCH_PARENT, dp(40).toInt()))
 
         val sizeHead = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        sizeHead.addView(TextView(context).apply {
-            text = "大小"
-            textSize = 13f
-            setTextColor(Color.parseColor("#E8EAED"))
+        sizeHead.addView(bodyText("大小").apply {
             layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
         })
-        sizeValue = TextView(context).apply {
-            text = ""
-            textSize = 13f
-            setTextColor(Color.parseColor("#C9CDD4"))
-        }
+        sizeValue = bodyText("")
         sizeHead.addView(sizeValue)
         addView(sizeHead, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
-            topMargin = dp(12).toInt()
+            topMargin = dp(18).toInt()
         })
 
         sizeSlider = TrackSlider(context).apply {
@@ -102,9 +79,11 @@ class EraserPanel(context: Context, private val listener: Listener) : LinearLayo
                 sizeValue.text = size.toString()
                 listener.onSize(size.toFloat())
             }
-            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, dp(28).toInt())
+            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, dp(26).toInt())
         }
-        addView(sizeSlider)
+        addView(sizeSlider, LinearLayout.LayoutParams(MATCH_PARENT, dp(26).toInt()).apply {
+            topMargin = dp(6).toInt()
+        })
     }
 
     private fun sync(brush: BrushConfig) {
@@ -123,9 +102,9 @@ class EraserPanel(context: Context, private val listener: Listener) : LinearLayo
     private fun tab(text: String, click: () -> Unit): TextView =
         TextView(context).apply {
             this.text = text
-            textSize = 13f
+            textSize = 14f
             gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
+            setTextColor(ContextCompat.getColor(context, R.color.ga_text_primary))
             layoutParams = LinearLayout.LayoutParams(0, MATCH_PARENT, 1f)
             setOnClickListener { click() }
             setTabSelected(false)
@@ -133,9 +112,25 @@ class EraserPanel(context: Context, private val listener: Listener) : LinearLayo
 
     private fun TextView.setTabSelected(selected: Boolean) {
         background = GradientDrawable().apply {
-            setColor(if (selected) Color.parseColor("#4A4A4E") else Color.TRANSPARENT)
-            cornerRadius = dp(14)
+            setColor(
+                if (selected) ContextCompat.getColor(context, R.color.ga_tab_selected)
+                else Color.TRANSPARENT,
+            )
+            cornerRadius = dp(17)
         }
+        setTextColor(
+            ContextCompat.getColor(
+                context,
+                if (selected) R.color.ga_text_title else R.color.ga_text_primary,
+            ),
+        )
+    }
+
+    private fun bodyText(text: String): TextView = TextView(context).apply {
+        this.text = text
+        textSize = 14f
+        setTextColor(ContextCompat.getColor(context, R.color.ga_text_primary))
+        includeFontPadding = false
     }
 
     private fun dp(value: Int): Float = value * density

@@ -1,21 +1,24 @@
 package com.globalannotate.app.widget
 
 import android.content.Context
-import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
-import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import com.globalannotate.app.R
 
-/** The ⋮ popup menu. Exit is deliberately NOT here — it stays on the main bar. */
+/**
+ * The ⋮ popup. Exit is intentionally NOT here — it lives on its own back button
+ * so a mis-tap can never quit instead of exporting.
+ */
 class MoreMenu(context: Context, private val listener: Listener) : LinearLayout(context) {
 
     interface Listener {
-        fun onInsertText()
-        fun onInsertShape()
+        fun onGestureSettings()
         fun onAutoMinimize(enabled: Boolean)
         fun onFingerDraw(enabled: Boolean)
         fun onCycleMode()
@@ -25,26 +28,18 @@ class MoreMenu(context: Context, private val listener: Listener) : LinearLayout(
     }
 
     private val density = resources.displayMetrics.density
-    private var autoMinimize = true
-    private var fingerDraw = false
 
     init {
         orientation = VERTICAL
         setBackgroundResource(R.drawable.bg_panel)
         elevation = dp(8)
-        setPadding(dp(8).toInt(), dp(8).toInt(), dp(8).toInt(), dp(8).toInt())
+        setPadding(dp(8).toInt(), dp(10).toInt(), dp(8).toInt(), dp(10).toInt())
+        layoutParams = LayoutParams(dp(240).toInt(), WRAP)
 
-        row("插入文本", R.drawable.ic_pdf) { listener.onInsertText() }
-        row("插入形状", R.drawable.ic_layers) { listener.onInsertShape() }
+        row("笔身手势", R.drawable.ic_pressure) { listener.onGestureSettings() }
         separator()
-        checkRow("自动最小化", true) { enabled ->
-            autoMinimize = enabled
-            listener.onAutoMinimize(enabled)
-        }
-        checkRow("用手指涂画", false) { enabled ->
-            fingerDraw = enabled
-            listener.onFingerDraw(enabled)
-        }
+        checkRow("自动最小化", true) { listener.onAutoMinimize(it) }
+        checkRow("用手指涂画", false) { listener.onFingerDraw(it) }
         separator()
         row("切换批注模式", R.drawable.ic_layers) { listener.onCycleMode() }
         row("导出 PNG", R.drawable.ic_image) { listener.onSavePng() }
@@ -56,18 +51,19 @@ class MoreMenu(context: Context, private val listener: Listener) : LinearLayout(
         val r = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14).toInt(), dp(10).toInt(), dp(14).toInt(), dp(10).toInt())
+            setPadding(dp(10).toInt(), dp(10).toInt(), dp(10).toInt(), dp(10).toInt())
             isClickable = true
             setOnClickListener { click() }
         }
         r.addView(IconButton(context).apply {
             iconRes = icon
-            layoutParams = LinearLayout.LayoutParams(dp(34).toInt(), dp(34).toInt())
+            layoutParams = LinearLayout.LayoutParams(dp(32).toInt(), dp(32).toInt())
         })
         r.addView(TextView(context).apply {
             this.text = text
             textSize = 14f
-            setTextColor(Color.WHITE)
+            includeFontPadding = false
+            setTextColor(ContextCompat.getColor(context, R.color.ga_text_primary))
             layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply {
                 marginStart = dp(12).toInt()
             }
@@ -86,13 +82,14 @@ class MoreMenu(context: Context, private val listener: Listener) : LinearLayout(
         r.addView(TextView(context).apply {
             this.text = text
             textSize = 14f
-            setTextColor(Color.parseColor("#4A9BFF"))
+            includeFontPadding = false
+            setTextColor(ContextCompat.getColor(context, R.color.ga_accent))
             layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
         })
         val check = TextView(context).apply {
             this.text = if (enabled) "✓" else ""
             textSize = 16f
-            setTextColor(Color.parseColor("#4A9BFF"))
+            setTextColor(ContextCompat.getColor(context, R.color.ga_accent))
         }
         r.addView(check)
         r.setOnClickListener {
@@ -104,13 +101,13 @@ class MoreMenu(context: Context, private val listener: Listener) : LinearLayout(
     }
 
     private fun separator() {
-        val v = View(context).apply {
-            setBackgroundColor(Color.argb(40, 255, 255, 255))
-            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, 1)
-        }
-        addView(v, LinearLayout.LayoutParams(MATCH_PARENT, 1).apply {
-            topMargin = dp(6).toInt(); bottomMargin = dp(6).toInt()
-        })
+        addView(
+            View(context).apply { setBackgroundColor(ContextCompat.getColor(context, R.color.ga_divider)) },
+            LinearLayout.LayoutParams(MATCH_PARENT, 1).apply {
+                topMargin = dp(6).toInt()
+                bottomMargin = dp(6).toInt()
+            },
+        )
     }
 
     private fun dp(value: Int): Float = value * density

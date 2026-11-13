@@ -30,6 +30,7 @@ import com.globalannotate.app.widget.BrushGlyph
 import com.globalannotate.app.widget.BrushPanel
 import com.globalannotate.app.widget.ColorPanel
 import com.globalannotate.app.widget.EraserPanel
+import com.globalannotate.app.widget.GesturePanel
 import com.globalannotate.app.widget.IconButton
 import com.globalannotate.app.widget.MoreMenu
 import com.globalannotate.app.widget.RadialPaletteView
@@ -42,9 +43,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Overlay host. Like Mi Canvas, exiting is a dedicated back button in the
- * top-left corner — far from the ⋮ menu and the export items — instead of
- * sitting next to them in the bottom bar.
+ * Overlay host. Popups are anchored above the brush that opened them, the bar
+ * auto-collapses as soon as the pen touches the surface (Mi Canvas behaviour),
+ * and exiting is a dedicated back button in the top-left corner.
  */
 class AnnotationService : Service(),
     ToolbarView.Listener,
@@ -52,6 +53,7 @@ class AnnotationService : Service(),
     ColorPanel.Listener,
     BrushPanel.Listener,
     EraserPanel.Listener,
+    GesturePanel.Listener,
     MoreMenu.Listener {
 
     private lateinit var windowManager: WindowManager
@@ -71,17 +73,23 @@ class AnnotationService : Service(),
     private lateinit var brushPanelParams: WindowManager.LayoutParams
     private lateinit var eraserPanel: EraserPanel
     private lateinit var eraserPanelParams: WindowManager.LayoutParams
+    private lateinit var gesturePanel: GesturePanel
+    private lateinit var gesturePanelParams: WindowManager.LayoutParams
     private lateinit var moreMenu: MoreMenu
     private lateinit var moreMenuParams: WindowManager.LayoutParams
 
     private var mode: OverlayMode = OverlayMode.DRAW
     private var active = false
     private var toolbarVisible = true
+    private var autoMinimize = true
     private var penEngine: PenEngineClient? = null
     private val penTip = PointF(0f, 0f)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val gestureMap = mutableMapOf<String, GestureAction>()
+    private var screenWidth = 0
 
-    private val panels: List<View> get() = listOf(colorPanel, brushPanel, eraserPanel, moreMenu)
+    private val panels: List<View>
+        get() = listOf(colorPanel, brushPanel, eraserPanel, gesturePanel, moreMenu)
 
     override fun onCreate() {
         super.onCreate()
@@ -92,12 +100,14 @@ class AnnotationService : Service(),
         )
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        val screen = windowManager.maximumWindowMetrics.bounds
-        penTip.set(screen.width() / 2f, screen.height() / 2f)
+        val bounds = windowManager.maximumWindowMetrics.bounds
+        screenWidth = bounds.width()
+        penTip.set(screenWidth / 2f, bounds.height() / 2f)
 
         canvas = AnnotationCanvasView(this).apply {
             onGesture = ::applyGesture
             onStateChanged = ::refreshToolbar
+            onPenDown = { if (autoMinimize) collapseBar() }
         }
         canvas.setOnHoverListener { _, event ->
             if (event.actionMasked == MotionEvent.ACTION_HOVER_ENTER ||
@@ -124,6 +134,7 @@ class AnnotationService : Service(),
         colorPanel = ColorPanel(this, this)
         brushPanel = BrushPanel(this, this)
         eraserPanel = EraserPanel(this, this)
+        gesturePanel = GesturePanel(this, this)
         moreMenu = MoreMenu(this, this)
 
         val baseFlags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
@@ -131,41 +142,26 @@ class AnnotationService : Service(),
         val passiveFlags = baseFlags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
 
         canvasParams = params(MATCH, MATCH, baseFlags)
-        toolbarParams = params((screen.width() * 0.76f).toInt(), WRAP, passiveFlags).apply {
+        toolbarParams = params(WRAP, WRAP, passiveFlags).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            y = dp(30)
+            y = dp(24)
         }
-        orbParams = params(dp(88), dp(88), passiveFlags).apply {
+        orbParams = params(dp(72), dp(72), passiveFlags).apply {
             gravity = Gravity.BOTTOM or Gravity.END
-            x = dp(26)
-            y = dp(26)
+            x = dp(24)
+            y = dp(24)
         }
-        exitParams = params(dp(48), dp(48), passiveFlags).apply {
+        exitParams = params(dp(44), dp(44), passiveFlags).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = dp(16)
-            y = dp(16)
+            x = dp(14)
+            y = dp(14)
         }
         paletteParams = params(MATCH, MATCH, passiveFlags)
-        colorPanelParams = params(dp(360), dp(580), passiveFlags).apply {
-            gravity = Gravity.BOTTOM or Gravity.END
-            x = dp(24)
-            y = dp(170)
-        }
-        brushPanelParams = params(dp(320), dp(430), passiveFlags).apply {
-            gravity = Gravity.BOTTOM or Gravity.END
-            x = dp(24)
-            y = dp(170)
-        }
-        eraserPanelParams = params(dp(280), dp(210), passiveFlags).apply {
-            gravity = Gravity.BOTTOM or Gravity.END
-            x = dp(24)
-            y = dp(170)
-        }
-        moreMenuParams = params(dp(260), WRAP, passiveFlags).apply {
-            gravity = Gravity.BOTTOM or Gravity.END
-            x = dp(24)
-            y = dp(170)
-        }
+        colorPanelParams = anchoredParams(dp(360), dp(560), passiveFlags)
+        brushPanelParams = anchoredParams(dp(288), dp(420), passiveFlags)
+        eraserPanelParams = anchoredParams(dp(288), dp(200), passiveFlags)
+        gesturePanelParams = anchoredParams(dp(288), dp(320), passiveFlags)
+        moreMenuParams = anchoredParams(dp(240), WRAP, passiveFlags)
 
         windowManager.addView(canvas, canvasParams)
         windowManager.addView(toolbar, toolbarParams)
@@ -173,12 +169,15 @@ class AnnotationService : Service(),
         windowManager.addView(colorPanel, colorPanelParams)
         windowManager.addView(brushPanel, brushPanelParams)
         windowManager.addView(eraserPanel, eraserPanelParams)
+        windowManager.addView(gesturePanel, gesturePanelParams)
         windowManager.addView(moreMenu, moreMenuParams)
         windowManager.addView(orb, orbParams)
         windowManager.addView(exitButton, exitParams)
 
         panels.forEach { it.visibility = View.GONE }
         restoreBrush()
+        restoreGestures()
+        gesturePanel.setActions(gestureMap)
         Session.service = this
         Session.canvas = canvas
         setMode(OverlayMode.DRAW)
@@ -213,6 +212,7 @@ class AnnotationService : Service(),
         Session.active = value
         canvas.visibility = if (value) View.VISIBLE else View.GONE
         exitButton.visibility = if (value) View.VISIBLE else View.GONE
+        orb.visibility = if (value) View.VISIBLE else View.GONE
         applyToolbarVisibility()
         if (!value) {
             palette.hide()
@@ -268,6 +268,13 @@ class AnnotationService : Service(),
         applyToolbarVisibility()
     }
 
+    private fun collapseBar() {
+        if (!toolbarVisible) return
+        toolbarVisible = false
+        applyToolbarVisibility()
+        closePanels()
+    }
+
     private fun applyToolbarVisibility() {
         if (::toolbar.isInitialized) {
             toolbar.visibility = if (active && toolbarVisible) View.VISIBLE else View.GONE
@@ -279,28 +286,56 @@ class AnnotationService : Service(),
         applyGesture(gesture)
     }
 
+    /** Gestures go through the configurable map, defaulting to sensible actions. */
     private fun applyGesture(gesture: Gesture) {
-        when (gesture) {
-            Gesture.SQUEEZE -> togglePalette()
-            Gesture.DOUBLE_TAP -> switchTool()
-            Gesture.SLIDE_UP -> adjustSize(1)
-            Gesture.SLIDE_DOWN -> adjustSize(-1)
+        val action = gestureMap[gesture.name] ?: defaultAction(gesture)
+        performAction(action)
+    }
+
+    private fun defaultAction(gesture: Gesture): GestureAction = when (gesture) {
+        Gesture.SQUEEZE -> GestureAction.OPEN_COLOR
+        Gesture.DOUBLE_TAP -> GestureAction.TOGGLE_ERASER
+        Gesture.SLIDE_UP -> GestureAction.INCREASE_WIDTH
+        Gesture.SLIDE_DOWN -> GestureAction.DECREASE_WIDTH
+    }
+
+    private fun performAction(action: GestureAction) {
+        when (action) {
+            GestureAction.NONE -> Unit
+            GestureAction.TOGGLE_OVERLAY -> setActive(!active)
+            GestureAction.TOGGLE_ERASER -> {
+                canvas.brush = if (canvas.brush.style.isEraser) {
+                    canvas.brush.copy(style = PenStyle.INK_PEN, size = PenStyle.INK_PEN.defaultSize.toFloat())
+                } else {
+                    canvas.brush.copy(style = PenStyle.ERASER)
+                }
+                refreshToolbar()
+            }
+            GestureAction.CYCLE_TOOL -> {
+                val order = PenStyle.entries
+                val next = order[(order.indexOf(canvas.brush.style) + 1) % order.size]
+                canvas.brush = canvas.brush.copy(style = next, size = next.defaultSize.toFloat(), alpha = next.defaultAlpha)
+                refreshToolbar()
+            }
+            GestureAction.UNDO -> canvas.undo()
+            GestureAction.REDO -> canvas.redo()
+            GestureAction.CLEAR -> canvas.clear()
+            GestureAction.INCREASE_WIDTH -> adjustSize(1)
+            GestureAction.DECREASE_WIDTH -> adjustSize(-1)
+            GestureAction.TOGGLE_TOOLBAR -> toggleToolbar()
+            GestureAction.OPEN_COLOR -> togglePalette()
+            GestureAction.CYCLE_COLOR -> cycleColor()
         }
     }
 
-    private fun togglePalette() {
-        if (!active) { setActive(true); return }
-        if (palette.visibility == View.VISIBLE) palette.hide()
-        else palette.showAt(penTip.x, penTip.y)
-    }
-
-    private fun switchTool() {
-        canvas.brush = if (canvas.brush.style.isEraser) {
-            canvas.brush.copy(style = PenStyle.INK_PEN, size = PenStyle.INK_PEN.defaultSize.toFloat())
-        } else {
-            canvas.brush.copy(style = PenStyle.ERASER)
-        }
+    /** Squeeze → next quick colour, the "换颜色" shortcut. */
+    private fun cycleColor() {
+        val paletteColors = BrushConfig.QUICK_COLORS
+        val index = paletteColors.indexOf(canvas.brush.color)
+        val next = paletteColors[(index + 1).mod(paletteColors.size)]
+        canvas.brush = canvas.brush.copy(color = next)
         refreshToolbar()
+        colorPanel.color = next
     }
 
     private fun adjustSize(delta: Int) {
@@ -315,6 +350,12 @@ class AnnotationService : Service(),
             ))
         }
         refreshToolbar()
+    }
+
+    private fun togglePalette() {
+        if (!active) { setActive(true); return }
+        if (palette.visibility == View.VISIBLE) palette.hide()
+        else palette.showAt(penTip.x, penTip.y)
     }
 
     override fun onPaletteAction(action: RadialPaletteView.PaletteAction) {
@@ -343,9 +384,9 @@ class AnnotationService : Service(),
     }
 
     // ── ToolbarView.Listener ────────────────────────────────────────────────
-    override fun onStyle(style: PenStyle) {
-        val sameBrush = canvas.brush.style == style
-        if (!sameBrush) {
+    override fun onStyle(style: PenStyle, anchorX: Int) {
+        val same = canvas.brush.style == style
+        if (!same) {
             canvas.brush = canvas.brush.copy(
                 style = style,
                 size = style.defaultSize.toFloat(),
@@ -353,13 +394,12 @@ class AnnotationService : Service(),
             )
             refreshToolbar()
         }
-        // Tapping the active brush opens its settings; tapping again closes them.
         if (style.isEraser) {
             eraserPanel.brush = canvas.brush
-            showPanel(eraserPanel)
+            showPanel(eraserPanel, anchorX, dp(288))
         } else {
             brushPanel.brush = canvas.brush
-            showPanel(brushPanel)
+            showPanel(brushPanel, anchorX, dp(288))
         }
     }
 
@@ -368,29 +408,17 @@ class AnnotationService : Service(),
         refreshToolbar()
     }
 
-    override fun onOpenColorPanel() {
+    override fun onOpenColorPanel(anchorX: Int) {
         colorPanel.color = canvas.brush.color
         colorPanel.opacity = canvas.brush.alpha
-        showPanel(colorPanel)
+        showPanel(colorPanel, anchorX, dp(360))
     }
 
-    override fun onOpenBrushPanel() {
-        if (canvas.brush.style.isEraser) {
-            eraserPanel.brush = canvas.brush
-            showPanel(eraserPanel)
-        } else {
-            brushPanel.brush = canvas.brush
-            showPanel(brushPanel)
-        }
-    }
+    override fun onOpenMoreMenu(anchorX: Int) = showPanel(moreMenu, anchorX, dp(240))
 
-    override fun onOpenMoreMenu() = showPanel(moreMenu)
     override fun onUndo() { canvas.undo() }
     override fun onRedo() { canvas.redo() }
-    override fun onCollapse() {
-        toolbarVisible = false
-        applyToolbarVisibility()
-    }
+    override fun onCollapse() = collapseBar()
 
     // ── ColorPanel.Listener ─────────────────────────────────────────────────
     override fun onOpacity(alpha: Int) {
@@ -425,10 +453,18 @@ class AnnotationService : Service(),
         refreshToolbar()
     }
 
+    // ── GesturePanel.Listener ───────────────────────────────────────────────
+    override fun onAction(gesture: String, action: GestureAction) {
+        gestureMap[gesture] = action
+        saveGestures()
+    }
+
     // ── MoreMenu.Listener ───────────────────────────────────────────────────
-    override fun onInsertText() = notImplemented("插入文本")
-    override fun onInsertShape() = notImplemented("插入形状")
-    override fun onAutoMinimize(enabled: Boolean) = Unit
+    override fun onGestureSettings() {
+        gesturePanel.setActions(gestureMap)
+        showPanel(gesturePanel, screenWidth / 2, dp(288))
+    }
+    override fun onAutoMinimize(enabled: Boolean) { autoMinimize = enabled }
     override fun onFingerDraw(enabled: Boolean) { canvas.allowFinger = enabled }
     override fun onCycleMode() {
         setMode(
@@ -444,32 +480,27 @@ class AnnotationService : Service(),
     override fun onSavePdf() { export(pdf = true); closePanels() }
     override fun onClear() { canvas.clear(); closePanels() }
 
-    private fun notImplemented(name: String) {
-        Toast.makeText(this, "$name 暂未实现", Toast.LENGTH_SHORT).show()
-    }
-
-    /** Tapping the same entry again closes the panel. */
-    private fun showPanel(target: View) {
+    /** Shows the popup above the tapped brush; tapping the same entry closes it. */
+    private fun showPanel(target: View, anchorX: Int, widthPx: Int) {
         val alreadyOpen = target.visibility == View.VISIBLE
         panels.forEach { it.visibility = View.GONE }
-        if (!alreadyOpen) {
-            target.visibility = View.VISIBLE
-            remeasure(target)
+        if (alreadyOpen) {
+            palette.hide()
+            return
         }
+        val lp = paramsFor(target)
+        lp.x = (anchorX - widthPx / 2).coerceIn(dp(8), (screenWidth - widthPx - dp(8)).coerceAtLeast(dp(8)))
+        target.visibility = View.VISIBLE
+        runCatching { windowManager.updateViewLayout(target, lp) }
         palette.hide()
     }
 
-    /** Overlay windows do not always re-measure after children change. */
-    private fun remeasure(view: View) {
-        val lp = when (view) {
-            brushPanel -> brushPanelParams
-            colorPanel -> colorPanelParams
-            eraserPanel -> eraserPanelParams
-            else -> moreMenuParams
-        }
-        view.post {
-            runCatching { windowManager.updateViewLayout(view, lp) }
-        }
+    private fun paramsFor(view: View): WindowManager.LayoutParams = when (view) {
+        colorPanel -> colorPanelParams
+        brushPanel -> brushPanelParams
+        eraserPanel -> eraserPanelParams
+        gesturePanel -> gesturePanelParams
+        else -> moreMenuParams
     }
 
     private fun closePanels() {
@@ -574,6 +605,21 @@ class AnnotationService : Service(),
         )
     }
 
+    private fun saveGestures() {
+        val editor = getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+        gestureMap.forEach { (k, v) -> editor.putString("gesture_$k", v.name) }
+        editor.apply()
+    }
+
+    private fun restoreGestures() {
+        val p = getSharedPreferences(PREFS, MODE_PRIVATE)
+        for (gesture in Gesture.entries) {
+            val saved = p.getString("gesture_${gesture.name}", null) ?: continue
+            runCatching { GestureAction.valueOf(saved) }
+                .onSuccess { gestureMap[gesture.name] = it }
+        }
+    }
+
     private fun notifyModule(action: String, enabled: Boolean) {
         val intent = Intent(action)
             .putExtra(Actions.EXTRA_TOKEN, Actions.TOKEN)
@@ -588,6 +634,13 @@ class AnnotationService : Service(),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             flags, PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.TOP or Gravity.START }
+
+    /** Popups sit above the bar, horizontally aligned to the tapped control. */
+    private fun anchoredParams(width: Int, height: Int, flags: Int): WindowManager.LayoutParams =
+        params(width, height, flags).apply {
+            gravity = Gravity.BOTTOM or Gravity.START
+            y = dp(122)
+        }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 

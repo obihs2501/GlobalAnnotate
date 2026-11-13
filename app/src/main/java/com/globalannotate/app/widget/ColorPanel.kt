@@ -1,20 +1,27 @@
 package com.globalannotate.app.widget
 
 import android.content.Context
-import android.graphics.Color
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
-import android.widget.LinearLayout
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import com.globalannotate.app.R
 
-/** 颜色 panel: tabs, 12x8 hue grid / hue strip, opacity checker slider, current colour. */
+/**
+ * Colour popup, structure copied from Mi Canvas
+ * `penpicker_popup_color_picker.xml`: 20dp title row with a 44dp straw button,
+ * a FilterSortView tab pair, 330x230 grid, then the alpha slider with a
+ * checkerboard and a current-colour block plus quick swatches.
+ * Popup size 360x571dp with 36dp corners, per penpicker dimens.
+ */
 class ColorPanel(context: Context, private val listener: Listener) : LinearLayout(context) {
 
     interface Listener {
@@ -26,14 +33,13 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
 
     private val density = resources.displayMetrics.density
     private val grid: HueGrid
-    private val hueBar: HueBar
     private val opacityBar: TrackSlider
     private val chip: ColorChip
     private val gridTab: TextView
     private val sliderTab: TextView
     private val gridContainer: LinearLayout
-    private val sliderContainer: LinearLayout
     private val opacityValue: TextView
+    private val quickSwatches = mutableListOf<SwatchView>()
 
     var color: Int = Color.parseColor("#D93025")
         set(value) {
@@ -42,90 +48,92 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
             chip.color = value
             opacityBar.gradientTo = value
             opacityBar.invalidate()
+            quickSwatches.forEach { it.checked = it.color == value }
         }
+
     var opacity: Int = 255
-        set(value) { field = value; opacityBar.progress = value / 255f; opacityValue.text = "${value * 100 / 255}%" }
+        set(value) {
+            field = value
+            opacityBar.progress = value / 255f
+            opacityValue.text = "${value * 100 / 255}%"
+        }
 
     init {
         orientation = VERTICAL
         setBackgroundResource(R.drawable.bg_panel)
         elevation = dp(8)
-        setPadding(dp(20).toInt(), dp(16).toInt(), dp(20).toInt(), dp(20).toInt())
+        layoutParams = LayoutParams(dp(360).toInt(), dp(571).toInt())
 
+        // Title row: 20dp top/bottom margin, straw button aligned to the end.
         val titleRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(20).toInt(), dp(20).toInt(), dp(20).toInt(), dp(12).toInt())
         }
-        val title = TextView(context).apply {
+        titleRow.addView(TextView(context).apply {
             text = "颜色"
-            textSize = 16f
-            setTextColor(Color.WHITE)
+            textSize = 20f
+            includeFontPadding = false
             gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(0, dp(40).toInt(), 1f)
-        }
-        titleRow.addView(title)
+            setTextColor(ContextCompat.getColor(context, R.color.ga_text_title))
+            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
+        })
         titleRow.addView(IconButton(context).apply {
             iconRes = R.drawable.ic_pipette
             onTap = { listener.onPipette() }
-            layoutParams = LinearLayout.LayoutParams(dp(38).toInt(), dp(38).toInt())
+            layoutParams = LinearLayout.LayoutParams(dp(44).toInt(), dp(44).toInt())
         })
-        titleRow.addView(IconButton(context).apply {
-            iconRes = R.drawable.ic_close
-            onTap = { listener.onClose() }
-            layoutParams = LinearLayout.LayoutParams(dp(38).toInt(), dp(38).toInt())
-        })
-        addView(titleRow)
+        addView(titleRow, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
 
+        // Tabs
         val tabRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             background = GradientDrawable().apply {
-                setColor(Color.parseColor("#1C1C1E"))
-                cornerRadius = dp(18)
+                setColor(ContextCompat.getColor(context, R.color.ga_tab_bg))
+                cornerRadius = dp(20)
             }
-            setPadding(dp(4).toInt(), dp(4).toInt(), dp(4).toInt(), dp(4).toInt())
+            setPadding(dp(3).toInt(), dp(3).toInt(), dp(3).toInt(), dp(3).toInt())
         }
         gridTab = tab("网格取色", true) { selectTab(true) }
         sliderTab = tab("滑块取色", false) { selectTab(false) }
         tabRow.addView(gridTab)
         tabRow.addView(sliderTab)
-        addView(tabRow, LinearLayout.LayoutParams(MATCH_PARENT, dp(40).toInt()).apply { topMargin = dp(12).toInt() })
+        addView(tabRow, LinearLayout.LayoutParams(MATCH_PARENT, dp(40).toInt()).apply {
+            leftMargin = dp(20).toInt()
+            rightMargin = dp(20).toInt()
+        })
 
-        addView(sectionLabel("色相"), LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply { topMargin = dp(14).toInt() })
+        addView(bodyText("色相").apply {
+            setPadding(dp(25).toInt(), dp(14).toInt(), 0, 0)
+        }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
 
         gridContainer = LinearLayout(context).apply { orientation = VERTICAL }
         grid = HueGrid(context) { picked ->
             color = picked
             listener.onColor(Color.argb(opacity, Color.red(picked), Color.green(picked), Color.blue(picked)))
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, dp(260).toInt())
+            layoutParams = LinearLayout.LayoutParams(dp(330).toInt(), dp(230).toInt()).apply {
+                topMargin = dp(3).toInt()
+            }
         }
-        gridContainer.addView(grid)
-        addView(gridContainer)
+        gridContainer.addView(grid, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
+            leftMargin = dp(25).toInt()
+        })
+        addView(gridContainer, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
 
-        sliderContainer = LinearLayout(context).apply {
-            orientation = VERTICAL
-            visibility = GONE
-        }
-        hueBar = HueBar(context) { picked ->
-            color = picked
-            listener.onColor(Color.argb(opacity, Color.red(picked), Color.green(picked), Color.blue(picked)))
-        }.apply { layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, dp(40).toInt()) }
-        sliderContainer.addView(hueBar)
-        sliderContainer.addView(HueGrid(context) { picked ->
-            color = picked
-            listener.onColor(Color.argb(opacity, Color.red(picked), Color.green(picked), Color.blue(picked)))
-        }.apply { layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, dp(220).toInt()) })
-        addView(sliderContainer)
-
+        // Opacity
         val opacityRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(25).toInt(), dp(16).toInt(), dp(25).toInt(), 0)
         }
-        opacityRow.addView(sectionLabel("不透明度"), LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f))
-        opacityValue = sectionLabel("100%")
+        opacityRow.addView(bodyText("不透明度").apply {
+            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
+        })
+        opacityValue = bodyText("100%")
         opacityRow.addView(opacityValue)
-        addView(opacityRow, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(14).toInt() })
+        addView(opacityRow, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
 
         opacityBar = TrackSlider(context).apply {
             checkered = true
@@ -137,48 +145,53 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
                 opacity = (p * 255f).toInt().coerceIn(0, 255)
                 listener.onOpacity(opacity)
             }
-            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, dp(30).toInt())
         }
-        addView(opacityBar)
+        addView(opacityBar, LinearLayout.LayoutParams(MATCH_PARENT, dp(26).toInt()).apply {
+            topMargin = dp(6).toInt()
+            leftMargin = dp(25).toInt()
+            rightMargin = dp(25).toInt()
+        })
 
+        // Current colour block + quick swatches
         val bottom = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(25).toInt(), dp(16).toInt(), dp(25).toInt(), 0)
         }
         chip = ColorChip(context, color).apply {
             layoutParams = LinearLayout.LayoutParams(dp(64).toInt(), dp(64).toInt())
         }
         bottom.addView(chip)
-        val presets = listOf(color, Color.WHITE, Color.BLACK)
-        for ((i, c) in presets.withIndex()) {
+        for (c in listOf(color, Color.WHITE, Color.BLACK)) {
             val s = SwatchView(context, c).apply {
-                checked = i == 0
+                checked = c == color
                 setOnClickListener {
                     this@ColorPanel.color = c
                     listener.onColor(Color.argb(opacity, Color.red(c), Color.green(c), Color.blue(c)))
                 }
-                layoutParams = LinearLayout.LayoutParams(dp(34).toInt(), dp(34).toInt()).apply {
+                layoutParams = LinearLayout.LayoutParams(dp(32).toInt(), dp(32).toInt()).apply {
                     marginStart = dp(12).toInt()
                 }
             }
+            quickSwatches.add(s)
             bottom.addView(s)
         }
-        addView(bottom, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply { topMargin = dp(18).toInt() })
+        addView(bottom, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
+            topMargin = dp(16).toInt()
+        })
     }
 
     private fun selectTab(gridSelected: Boolean) {
         gridTab.setTabSelected(gridSelected)
         sliderTab.setTabSelected(!gridSelected)
         gridContainer.visibility = if (gridSelected) VISIBLE else GONE
-        sliderContainer.visibility = if (gridSelected) GONE else VISIBLE
     }
 
     private fun tab(text: String, selected: Boolean, click: () -> Unit): TextView =
         TextView(context).apply {
             this.text = text
-            textSize = 13f
+            textSize = 14f
             gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
             layoutParams = LinearLayout.LayoutParams(0, MATCH_PARENT, 1f)
             setOnClickListener { click() }
             setTabSelected(selected)
@@ -186,15 +199,25 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
 
     private fun TextView.setTabSelected(selected: Boolean) {
         background = GradientDrawable().apply {
-            setColor(if (selected) Color.parseColor("#4A4A4E") else Color.TRANSPARENT)
-            cornerRadius = dp(16)
+            setColor(
+                if (selected) ContextCompat.getColor(context, R.color.ga_tab_selected)
+                else Color.TRANSPARENT,
+            )
+            cornerRadius = dp(17)
         }
+        setTextColor(
+            ContextCompat.getColor(
+                context,
+                if (selected) R.color.ga_text_title else R.color.ga_text_primary,
+            ),
+        )
     }
 
-    private fun sectionLabel(text: String): TextView = TextView(context).apply {
+    private fun bodyText(text: String): TextView = TextView(context).apply {
         this.text = text
-        textSize = 13f
-        setTextColor(Color.parseColor("#C9CDD4"))
+        textSize = 14f
+        includeFontPadding = false
+        setTextColor(ContextCompat.getColor(context, R.color.ga_text_primary))
     }
 
     private fun dp(value: Int): Float = value * density

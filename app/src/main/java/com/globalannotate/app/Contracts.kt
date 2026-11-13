@@ -45,13 +45,18 @@ enum class OverlayMode {
 
 enum class Gesture { SQUEEZE, DOUBLE_TAP, SLIDE_UP, SLIDE_DOWN }
 
+/** Actions a pen-barrel gesture can be mapped to. */
 enum class GestureAction {
+    NONE,
     TOGGLE_OVERLAY,
     TOGGLE_ERASER,
+    CYCLE_TOOL,
     UNDO,
     REDO,
     CLEAR,
     INCREASE_WIDTH,
     DECREASE_WIDTH,
-    NONE,
+    TOGGLE_TOOLBAR,
+    OPEN_COLOR,
+    CYCLE_COLOR,
 }

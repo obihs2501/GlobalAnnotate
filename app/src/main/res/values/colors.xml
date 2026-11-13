@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Design tokens mirrored from Mi Canvas penpicker (light theme). -->
+    <color name="ga_panel_bg">#FFFFFF</color>
+    <color name="ga_capsule_bg">#F5F5F7</color>
+    <color name="ga_text_title">#FF000000</color>
+    <color name="ga_text_primary">#CC000000</color>
+    <color name="ga_text_secondary">#66000000</color>
+    <color name="ga_divider">#1A000000</color>
+    <color name="ga_tab_bg">#1A000000</color>
+    <color name="ga_tab_selected">#33000000</color>
+    <color name="ga_accent">#3482FF</color>
+    <color name="ga_icon_tint">#CC000000</color>
+    <color name="ga_circle_bg">#0F000000</color>
+    <color name="ga_eraser_hint">#66000000</color>
+</resources>

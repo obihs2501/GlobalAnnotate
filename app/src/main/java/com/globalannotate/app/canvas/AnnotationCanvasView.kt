@@ -47,6 +47,8 @@ class AnnotationCanvasView(context: Context) : View(context) {
     var allowFinger: Boolean = false
     var onGesture: ((Gesture) -> Unit)? = null
     var onStateChanged: (() -> Unit)? = null
+    /** Fired when the pen touches the surface, so the bar can auto-collapse. */
+    var onPenDown: (() -> Unit)? = null
 
     private val detector = FocusPenGestureDetector { gesture -> onGesture?.invoke(gesture) }
 
@@ -244,7 +246,10 @@ class AnnotationCanvasView(context: Context) : View(context) {
         val tool = event.getToolType(0)
         if (tool != MotionEvent.TOOL_TYPE_STYLUS && tool != MotionEvent.TOOL_TYPE_ERASER) return false
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> begin(event.x, event.y, event.pressure)
+            MotionEvent.ACTION_DOWN -> {
+                onPenDown?.invoke()
+                begin(event.x, event.y, event.pressure)
+            }
             MotionEvent.ACTION_MOVE -> {
                 if (event.historySize > 0) {
                     for (i in 0 until event.historySize) {

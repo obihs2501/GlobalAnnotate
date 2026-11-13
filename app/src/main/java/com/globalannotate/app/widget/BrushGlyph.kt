@@ -1,21 +1,23 @@
 package com.globalannotate.app.widget
 
 import android.content.Context
+import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.drawable.BitmapDrawable
 import android.view.View
 import com.globalannotate.app.R
 import com.globalannotate.app.model.PenStyle
-import kotlin.math.min
 
 /**
- * Mi Canvas' original brush artwork, extracted from the app's own resources
- * (transparent PNG/WebP, multiple densities). The colour chip on the barrel is
- * drawn at runtime in the current ink colour, exactly as the original does.
- * The host toolbar lifts the selected glyph so the chosen pen "pulls out".
+ * Mi Canvas brush artwork. The APK ships separate light and dark variants of
+ * every pen; we bundle the dark set and invert luminance for the light theme so
+ * the icons always match the surrounding surface, exactly like the original.
+ * Selection is expressed only by the host lifting the glyph — no ring.
  */
 class BrushGlyph(context: Context) : View(context) {
 
@@ -26,18 +28,28 @@ class BrushGlyph(context: Context) : View(context) {
     var checked: Boolean = false
         set(value) { field = value; invalidate() }
     var large: Boolean = false
-    var accentRing: Boolean = false
         set(value) { field = value; invalidate() }
 
     private val dst = RectF()
     private val markerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val haloPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = Color.argb(34, 255, 255, 255)
+    private val invertPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        colorFilter = ColorMatrixColorFilter(ColorMatrix().apply { setSaturation(0f) })
     }
-    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
+    private val nightMatrix = ColorMatrix(
+        floatArrayOf(
+            -1f, 0f, 0f, 0f, 255f,
+            0f, -1f, 0f, 0f, 255f,
+            0f, 0f, -1f, 0f, 255f,
+            0f, 0f, 0f, 1f, 0f,
+        ),
+    )
+    private val lightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        colorFilter = ColorMatrixColorFilter(nightMatrix)
     }
+
+    private fun isNight(): Boolean =
+        (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
+            Configuration.UI_MODE_NIGHT_YES
 
     private fun artworkFor(style: PenStyle): Int = when (style) {
         PenStyle.PENCIL -> R.drawable.brush_pencil
@@ -55,40 +67,23 @@ class BrushGlyph(context: Context) : View(context) {
         if (w <= 0f || h <= 0f) return
 
         val cx = w / 2f
-        val unit = min(w, h)
-        if (checked) canvas.drawCircle(cx, h * 0.52f, unit * 0.46f, haloPaint)
-
         val bitmap = (context.getDrawable(artworkFor(style)) as? BitmapDrawable)?.bitmap
         if (bitmap != null) {
             val ratio = bitmap.width.toFloat() / bitmap.height.toFloat()
-            val drawHeight = h
-            val drawWidth = drawHeight * ratio
+            val drawWidth = h * ratio
             val left = (w - drawWidth) / 2f
             dst.set(left, 0f, left + drawWidth, h)
-            canvas.drawBitmap(bitmap, null, dst, null)
+            canvas.drawBitmap(bitmap, null, dst, if (isNight()) null else lightPaint)
 
             if (!style.isEraser) {
                 markerPaint.color = color
                 val markerWidth = (drawWidth * 0.24f).coerceAtLeast(4f)
-                val top = h * 0.575f
-                val bottom = h * 0.695f
                 canvas.drawRoundRect(
-                    cx - markerWidth / 2f, top,
-                    cx + markerWidth / 2f, bottom,
+                    cx - markerWidth / 2f, h * 0.575f,
+                    cx + markerWidth / 2f, h * 0.695f,
                     markerWidth * 0.45f, markerWidth * 0.45f, markerPaint,
                 )
             }
-        }
-
-        if (checked) {
-            ringPaint.color = Color.argb(70, 255, 255, 255)
-            ringPaint.strokeWidth = w * 0.04f
-            canvas.drawCircle(cx, h * 0.52f, unit * 0.46f, ringPaint)
-        }
-        if (accentRing && !checked) {
-            ringPaint.color = Color.argb(90, 255, 255, 255)
-            ringPaint.strokeWidth = w * 0.03f
-            canvas.drawCircle(cx, h * 0.52f, unit * 0.43f, ringPaint)
         }
     }
 }
