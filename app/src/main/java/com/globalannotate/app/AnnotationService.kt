@@ -221,6 +221,13 @@ class AnnotationService : Service(),
         when (intent.action) {
             Actions.LAUNCH -> setActive(true)
             Actions.TOGGLE -> setActive(!active)
+            "com.globalannotate.action.DEBUG" -> {
+                val skip = intent.getStringExtra("cmd") == "skip1"
+                for (view in listOf(canvas, toolbar, orb)) {
+                    val ok = com.globalannotate.app.sys.Hidden.setSkipScreenshot(view, skip)
+                    Log.i(TAG, "debug skip=$skip ok=$ok view=${view.javaClass.simpleName}")
+                }
+            }
             Actions.GESTURE -> {
                 val name = intent.getStringExtra(Actions.EXTRA_GESTURE) ?: return
                 val gesture = runCatching { Gesture.valueOf(name) }.getOrNull() ?: return

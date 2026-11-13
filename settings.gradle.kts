@@ -22,3 +22,4 @@ dependencyResolutionManagement {
 rootProject.name = "GlobalAnnotate"
 include(":app")
 include(":xposed")
+include(":hiddenapi")

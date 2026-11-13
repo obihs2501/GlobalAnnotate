@@ -32,6 +32,8 @@ android {
 }
 
 dependencies {
+    compileOnly(project(":hiddenapi"))
+    implementation(libs.hiddenapibypass)
     implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.android)
     testImplementation(libs.junit)
