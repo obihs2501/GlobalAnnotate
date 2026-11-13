@@ -17,7 +17,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
-import com.globalannotate.app.widget.IconButton
+import com.globalannotate.app.widget.BrushGlyph
 import android.widget.Toast
 import androidx.core.app.ServiceCompat
 import com.globalannotate.app.canvas.AnnotationCanvasView
@@ -52,7 +52,7 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
     private lateinit var canvasParams: WindowManager.LayoutParams
     private lateinit var toolbar: ToolbarView
     private lateinit var toolbarParams: WindowManager.LayoutParams
-    private lateinit var orb: IconButton
+    private lateinit var orb: BrushGlyph
     private lateinit var orbParams: WindowManager.LayoutParams
     private lateinit var palette: RadialPaletteView
     private lateinit var paletteParams: WindowManager.LayoutParams
@@ -91,11 +91,10 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
         }
 
         toolbar = ToolbarView(this, this)
-        orb = IconButton(this).apply {
-            iconRes = R.drawable.ic_pen
-            onTap = { setActive(!active) }
+        orb = BrushGlyph(this).apply {
             setBackgroundResource(R.drawable.bg_orb)
             elevation = dp(6).toFloat()
+            setOnClickListener { toggleToolbar() }
         }
         palette = RadialPaletteView(this).apply { listener = this@AnnotationService }
 
@@ -105,13 +104,13 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
 
         canvasParams = params(MATCH, MATCH, baseFlags)
         toolbarParams = params(WRAP, WRAP, passiveFlags).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = dp(44).toInt()
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            y = dp(32)
         }
-        orbParams = params(dp(44).toInt(), dp(44).toInt(), passiveFlags).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = dp(4)
-            y = dp(140)
+        orbParams = params(dp(76), dp(76), passiveFlags).apply {
+            gravity = Gravity.BOTTOM or Gravity.END
+            x = dp(28)
+            y = dp(28)
         }
         paletteParams = params(MATCH, MATCH, passiveFlags)
 
@@ -150,11 +149,24 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
         }
     }
 
+    private var toolbarVisible = true
+
+    private fun toggleToolbar() {
+        toolbarVisible = !toolbarVisible
+        applyToolbarVisibility()
+    }
+
+    private fun applyToolbarVisibility() {
+        if (::toolbar.isInitialized) {
+            toolbar.visibility = if (active && toolbarVisible) View.VISIBLE else View.GONE
+        }
+    }
+
     private fun setActive(value: Boolean) {
         active = value
         Session.active = value
         canvas.visibility = if (value) View.VISIBLE else View.GONE
-        toolbar.visibility = if (value) View.VISIBLE else View.GONE
+        applyToolbarVisibility()
         if (!value) palette.hide()
         applyCanvasFlags()
         syncPenEngine()
@@ -267,6 +279,10 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
     private fun refreshToolbar() {
         if (::toolbar.isInitialized) {
             toolbar.update(canvas.brush, mode, canvas.canUndo(), canvas.canRedo())
+        }
+        if (::orb.isInitialized) {
+            orb.style = canvas.brush.style
+            orb.color = canvas.brush.color
         }
         saveBrush()
     }

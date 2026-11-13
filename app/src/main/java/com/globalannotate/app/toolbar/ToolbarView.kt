@@ -2,7 +2,11 @@ package com.globalannotate.app.toolbar
 
 import android.content.Context
 import android.content.res.ColorStateList
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.SweepGradient
+import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
 import android.widget.HorizontalScrollView
@@ -13,18 +17,18 @@ import com.globalannotate.app.OverlayMode
 import com.globalannotate.app.R
 import com.globalannotate.app.model.BrushConfig
 import com.globalannotate.app.model.PenStyle
+import com.globalannotate.app.widget.BrushGlyph
 import com.globalannotate.app.widget.BrushPreview
 import com.globalannotate.app.widget.ColorStrip
 import com.globalannotate.app.widget.IconButton
+import com.globalannotate.app.widget.SwatchView
+import kotlin.math.min
 
 /**
- * Two-row HyperOS-style capsule toolbar.
- * Row 1: brush types | palette + eyedropper | live stroke preview
- * Row 2: width slider | pressure toggle | history | mode / export / close
- *
- * Visual language follows the Miuix/HyperOS Surface conventions used by the
- * sibling DrawAnywhere project: 26dp squircle-ish capsule, translucent
- * surfaceContainerHigh background, #0D84FF accent, 8dp spacing.
+ * Mi Canvas-style bottom capsule: one row of circular history buttons,
+ * painterly brush glyphs, four large colour dots and a rainbow wheel.
+ * Width / pressure / full palette / export live in the "more" panel, hidden
+ * by default so the main bar stays quiet and text-free.
  */
 class ToolbarView(context: Context, private val listener: Listener) : LinearLayout(context) {
 
@@ -44,7 +48,8 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
     }
 
     private val density = resources.displayMetrics.density
-    private val brushButtons = mutableMapOf<PenStyle, IconButton>()
+    private val glyphs = mutableMapOf<PenStyle, BrushGlyph>()
+    private val quickSwatches = mutableListOf<SwatchView>()
     private val colorStrip: ColorStrip
     private val preview = BrushPreview(context)
     private val widthSeek: SeekBar
@@ -53,51 +58,100 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
     private val undoButton: IconButton
     private val redoButton: IconButton
     private val modeButton: IconButton
+    private val morePanel: LinearLayout
     private var updating = false
 
-    private val brushIcons = listOf(
-        PenStyle.PEN to R.drawable.ic_pen,
-        PenStyle.PENCIL to R.drawable.ic_pencil,
-        PenStyle.MARKER to R.drawable.ic_marker,
-        PenStyle.HIGHLIGHTER to R.drawable.ic_highlighter,
-        PenStyle.LASER to R.drawable.ic_laser,
-        PenStyle.ERASER_PIXEL to R.drawable.ic_eraser,
-        PenStyle.ERASER_STROKE to R.drawable.ic_eraser_stroke,
+    private val styles = listOf(
+        PenStyle.PEN, PenStyle.PENCIL, PenStyle.MARKER, PenStyle.HIGHLIGHTER,
+        PenStyle.LASER, PenStyle.ERASER_PIXEL, PenStyle.ERASER_STROKE,
+    )
+    private val quickColors = listOf(
+        Color.parseColor("#D93025"),
+        Color.parseColor("#F9AB00"),
+        Color.parseColor("#1A73E8"),
+        Color.parseColor("#202124"),
     )
 
     init {
         orientation = VERTICAL
         setBackgroundResource(R.drawable.bg_toolbar)
         elevation = dp(8)
-        setPadding(dp(10).toInt(), dp(8).toInt(), dp(10).toInt(), dp(8).toInt())
+        setPadding(dp(16).toInt(), dp(6).toInt(), dp(16).toInt(), dp(10).toInt())
 
-        // ── Row 1 ──────────────────────────────────────────────────────────
-        val row1 = LinearLayout(context).apply {
+        val handle = View(context).apply {
+            background = GradientDrawable().apply {
+                setColor(Color.argb(90, 255, 255, 255))
+                cornerRadius = dp(2)
+            }
+            layoutParams = LinearLayout.LayoutParams(dp(38).toInt(), dp(4).toInt()).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                bottomMargin = dp(6).toInt()
+            }
+        }
+        addView(handle)
+
+        // ── main row ────────────────────────────────────────────────────────
+        val row = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        for ((style, icon) in brushIcons) {
-            val button = iconButton(icon) { listener.onStyle(style) }
-            brushButtons[style] = button
-            row1.addView(button)
-        }
-        row1.addView(divider())
-        colorStrip = ColorStrip(context, { listener.onColor(it) }, { listener.onPipette() })
-        row1.addView(colorStrip)
-        row1.addView(divider())
-        row1.addView(preview, LayoutParams(dp(56).toInt(), dp(30).toInt()))
-        addView(scroll(row1))
+        undoButton = circle(R.drawable.ic_undo) { listener.onUndo() }
+        redoButton = circle(R.drawable.ic_redo) { listener.onRedo() }
+        row.addView(undoButton)
+        row.addView(redoButton)
+        row.addView(space(dp(6)))
 
-        // ── Row 2 ──────────────────────────────────────────────────────────
-        val row2 = LinearLayout(context).apply {
+        for (style in styles) {
+            val glyph = BrushGlyph(context).apply {
+                this.style = style
+                setOnClickListener { listener.onStyle(style) }
+                layoutParams = LinearLayout.LayoutParams(dp(40).toInt(), dp(62).toInt())
+            }
+            glyphs[style] = glyph
+            row.addView(glyph)
+        }
+
+        row.addView(space(dp(8)))
+        for (c in quickColors) {
+            val swatch = SwatchView(context, c).apply {
+                setOnClickListener { listener.onColor(c) }
+                layoutParams = LinearLayout.LayoutParams(dp(36).toInt(), dp(36).toInt()).apply {
+                    marginStart = dp(4).toInt()
+                    marginEnd = dp(4).toInt()
+                }
+            }
+            quickSwatches.add(swatch)
+            row.addView(swatch)
+        }
+        val rainbow = RainbowSwatch(context).apply {
+            onTap = { morePanel.visibility = if (morePanel.visibility == VISIBLE) GONE else VISIBLE }
+            layoutParams = LinearLayout.LayoutParams(dp(36).toInt(), dp(36).toInt())
+        }
+        row.addView(rainbow)
+        row.addView(space(dp(6)))
+
+        val moreButton = circle(R.drawable.ic_more) {
+            morePanel.visibility = if (morePanel.visibility == VISIBLE) GONE else VISIBLE
+        }
+        row.addView(moreButton)
+        addView(scroll(row))
+
+        // ── more panel ───────────────────────────────────────────────────────
+        morePanel = LinearLayout(context).apply {
+            orientation = VERTICAL
+            visibility = GONE
+            setPadding(0, dp(10).toInt(), 0, 0)
+        }
+
+        val widthRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        row2.addView(label("粗细"))
+        widthRow.addView(label("粗细"))
         widthSeek = SeekBar(context).apply {
             max = 100
-            progressTintList = ColorStateList.valueOf(Color.parseColor("#0D84FF"))
-            thumbTintList = ColorStateList.valueOf(Color.parseColor("#0D84FF"))
+            progressTintList = ColorStateList.valueOf(Color.parseColor("#FF5B52"))
+            thumbTintList = ColorStateList.valueOf(Color.WHITE)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seek: SeekBar, value: Int, fromUser: Boolean) {
                     if (!updating && fromUser) listener.onWidth(1f + value / 100f * 59f)
@@ -105,36 +159,44 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
                 override fun onStartTrackingTouch(seek: SeekBar) = Unit
                 override fun onStopTrackingTouch(seek: SeekBar) = Unit
             })
+            layoutParams = LinearLayout.LayoutParams(dp(140).toInt(), dp(28).toInt())
         }
-        row2.addView(widthSeek, LayoutParams(dp(130).toInt(), dp(30).toInt()))
-        widthValue = label("12")
-        row2.addView(widthValue)
-
-        pressureButton = iconButton(R.drawable.ic_pressure) {
+        widthRow.addView(widthSeek)
+        widthValue = label("3")
+        widthRow.addView(widthValue)
+        pressureButton = circle(R.drawable.ic_pressure) {
             listener.onPressure(!pressureButton.checked)
         }
-        row2.addView(divider())
-        row2.addView(pressureButton)
+        widthRow.addView(pressureButton)
+        widthRow.addView(preview, LinearLayout.LayoutParams(dp(60).toInt(), dp(28).toInt()))
+        morePanel.addView(widthRow)
 
-        undoButton = iconButton(R.drawable.ic_undo) { listener.onUndo() }
-        redoButton = iconButton(R.drawable.ic_redo) { listener.onRedo() }
-        row2.addView(divider())
-        row2.addView(undoButton)
-        row2.addView(redoButton)
-        row2.addView(iconButton(R.drawable.ic_trash) { listener.onClear() })
+        colorStrip = ColorStrip(context, { listener.onColor(it) }, { listener.onPipette() })
+        morePanel.addView(scroll(colorStrip))
 
-        modeButton = iconButton(R.drawable.ic_layers) { listener.onCycleMode() }
-        row2.addView(divider())
-        row2.addView(modeButton)
-        row2.addView(iconButton(R.drawable.ic_image) { listener.onSavePng() })
-        row2.addView(iconButton(R.drawable.ic_pdf) { listener.onSavePdf() })
-        row2.addView(iconButton(R.drawable.ic_close) { listener.onQuit() })
-        addView(scroll(row2))
+        val actionRow = LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        modeButton = circle(R.drawable.ic_layers) { listener.onCycleMode() }
+        actionRow.addView(modeButton)
+        actionRow.addView(circle(R.drawable.ic_image) { listener.onSavePng() })
+        actionRow.addView(circle(R.drawable.ic_pdf) { listener.onSavePdf() })
+        actionRow.addView(circle(R.drawable.ic_trash) { listener.onClear() })
+        actionRow.addView(circle(R.drawable.ic_close) { listener.onQuit() })
+        morePanel.addView(scroll(actionRow))
+
+        addView(morePanel)
     }
 
     fun update(brush: BrushConfig, mode: OverlayMode, canUndo: Boolean, canRedo: Boolean) {
         updating = true
-        brushButtons.forEach { (style, button) -> button.checked = style == brush.style }
+        glyphs.forEach { (style, glyph) ->
+            glyph.style = style
+            glyph.color = brush.color
+            glyph.checked = style == brush.style
+        }
+        quickSwatches.forEach { it.checked = it.color == brush.color }
         colorStrip.setColor(brush.color)
         preview.brush = brush
         widthSeek.progress = (((brush.widthDp - 1f) / 59f) * 100f).toInt().coerceIn(0, 100)
@@ -144,41 +206,74 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
         redoButton.enabledVisual = canRedo
         modeButton.checked = mode == OverlayMode.ROOT_SPLIT
         updating = false
+        refreshLabels()
     }
 
-    private fun iconButton(icon: Int, tap: () -> Unit): IconButton =
+    private fun refreshLabels() {
+        // Text colours are resolved here so label() can stay tiny.
+        for (i in 0 until morePanel.childCount) {
+            val child = morePanel.getChildAt(i)
+            if (child is TextView) child.setTextColor(Color.parseColor("#C9CDD4"))
+        }
+    }
+
+    private fun circle(icon: Int, tap: () -> Unit): IconButton =
         IconButton(context).apply {
             iconRes = icon
             onTap = tap
             contentDescription = resources.getResourceEntryName(icon)
-            layoutParams = LayoutParams(dp(38).toInt(), dp(38).toInt())
+            layoutParams = LinearLayout.LayoutParams(dp(40).toInt(), dp(40).toInt())
         }
 
     private fun scroll(child: View): HorizontalScrollView =
         HorizontalScrollView(context).apply {
             isHorizontalScrollBarEnabled = false
             overScrollMode = OVER_SCROLL_NEVER
-            addView(child, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
+            addView(child, LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+            ))
         }
 
-    private fun divider(): View = View(context).apply {
-        setBackgroundColor(Color.argb(28, 0, 0, 0))
-        layoutParams = LayoutParams(dp(1).toInt(), dp(24).toInt()).apply {
-            marginStart = dp(6).toInt()
-            marginEnd = dp(6).toInt()
-        }
+    private fun space(size: Float): View = View(context).apply {
+        layoutParams = LinearLayout.LayoutParams(size.toInt(), 1)
     }
 
     private fun label(text: String): TextView = TextView(context).apply {
         this.text = text
         textSize = 12f
-        setTextColor(Color.parseColor("#5F6368"))
+        setTextColor(Color.parseColor("#C9CDD4"))
         gravity = Gravity.CENTER_VERTICAL
-        layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, dp(30).toInt()).apply {
-            marginStart = dp(4).toInt()
-            marginEnd = dp(4).toInt()
-        }
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, dp(28).toInt(),
+        ).apply { marginStart = dp(4).toInt(); marginEnd = dp(4).toInt() }
     }
 
     private fun dp(value: Int): Float = value * density
+
+    /** Rainbow colour wheel entry, matching Mi Canvas's fourth colour dot. */
+    private class RainbowSwatch(context: Context) : View(context) {
+        var onTap: (() -> Unit)? = null
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val colors = intArrayOf(
+            Color.parseColor("#F44336"), Color.parseColor("#FFEB3B"),
+            Color.parseColor("#4CAF50"), Color.parseColor("#00BCD4"),
+            Color.parseColor("#2196F3"), Color.parseColor("#9C27B0"),
+            Color.parseColor("#F44336"),
+        )
+
+        init {
+            isClickable = true
+            setOnClickListener { onTap?.invoke() }
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            val cx = width / 2f
+            val cy = height / 2f
+            val r = min(width, height) * 0.36f
+            paint.shader = SweepGradient(cx, cy, colors, null)
+            canvas.drawCircle(cx, cy, r, paint)
+            paint.shader = null
+        }
+    }
 }

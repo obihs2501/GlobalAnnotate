@@ -40,7 +40,7 @@ class SwatchView(context: Context, val color: Int) : View(context) {
 
         if (checked) {
             paint.strokeWidth = 2.5f * density
-            paint.color = Color.parseColor("#0D84FF")
+            paint.color = Color.parseColor("#FF5B52")
             canvas.drawCircle(cx, cy, min(width, height) * 0.46f, paint)
         }
     }
