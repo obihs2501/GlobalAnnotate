@@ -16,8 +16,9 @@ import java.lang.reflect.Method
  *
  * Runs in system_server for every foreground app, so a squeeze / double tap
  * summons annotation from anywhere. With libxposed API 102, NOT calling
- * chain.proceed() consumes the event (equivalent to the old setResult(0)).
- * Both DOWN and UP are consumed so Xiaomi's shortcut wheel cannot re-trigger.
+ * chain.proceed() consumes the event; the replacement value must still match
+ * the hooked method's return type or the framework throws ClassCastException,
+ * so the value is derived from the real signature (int / boolean / void).
  */
 object GestureLauncher {
 
@@ -30,26 +31,37 @@ object GestureLauncher {
         for (className in CompatProfile.KEY_HOOK_CLASSES) {
             val clazz = runCatching { Class.forName(className, false, classLoader) }.getOrNull() ?: continue
             for (method in findMethods(clazz, CompatProfile.INTERCEPT_KEY_METHOD)) {
+                val consumed = consumedValueFor(method)
                 val ok = runCatching {
                     method.isAccessible = true
                     api.hook(method).intercept { chain ->
                         try {
-                            handle(chain, bridge)
+                            handle(chain, bridge, consumed)
                         } catch (error: Throwable) {
                             GaLog.e("gesture hook error: $error")
                             chain.proceed() // fail open
                         }
                     }
                     true
-                }.onFailure { GaLog.e("hook $className failed: $it") }.getOrDefault(false)
-                if (ok) hooked++
+                }.onFailure { GaLog.e("hook ${className}#${method.name} failed: $it") }.getOrDefault(false)
+                if (ok) {
+                    hooked++
+                    GaLog.i("hooked ${className}#${method.name}(${method.parameterTypes.joinToString { it.simpleName }}): ${method.returnType.simpleName}")
+                }
             }
         }
-        if (hooked > 0) GaLog.i("key policy hooked on $hooked methods")
-        else GaLog.e("no key-policy hook found; check CompatProfile against this ROM")
+        if (hooked == 0) GaLog.e("no key-policy hook found; check CompatProfile against this ROM")
     }
 
-    private fun handle(chain: XposedInterface.Chain, bridge: AppBridge): Any? {
+    /** Consumed value matching the real return type of the hooked method. */
+    private fun consumedValueFor(method: Method): Any? = when (method.returnType) {
+        java.lang.Integer.TYPE, Integer::class.java -> 0
+        java.lang.Boolean.TYPE, java.lang.Boolean::class.java -> true
+        java.lang.Long.TYPE, java.lang.Long::class.java -> 0L
+        else -> null // void
+    }
+
+    private fun handle(chain: XposedInterface.Chain, bridge: AppBridge, consumed: Any?): Any? {
         if (!ModuleState.enabled) return chain.proceed()
         val event = chain.args.getOrNull(0) as? KeyEvent ?: return chain.proceed()
         val keyCode = event.keyCode
@@ -68,8 +80,8 @@ object GestureLauncher {
                 else -> onSqueeze(bridge)
             }
         }
-        // Consume the whole DOWN/UP pair: do not call chain.proceed().
-        return 0
+        // Consume the whole DOWN/UP pair: skip chain.proceed().
+        return consumed
     }
 
     private fun onSqueeze(bridge: AppBridge) {
