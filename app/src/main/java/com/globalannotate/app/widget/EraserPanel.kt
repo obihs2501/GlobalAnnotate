@@ -34,7 +34,7 @@ class EraserPanel(context: Context, private val listener: Listener) :
     private val tabs: FilterSortView
     private val content: FrameLayout
     private val hint: TextView
-    private val sizeRow: LinearLayout
+    private val sizeRow: android.view.View
     private val sizeValue: TextView
     private val slider: SelectPropertyView
 
@@ -67,7 +67,7 @@ class EraserPanel(context: Context, private val listener: Listener) :
         // Size row mirrors penpicker_layout_pen_property_item: label + value, bar below.
         val row = LayoutInflater.from(context)
             .inflate(R.layout.penpicker_layout_pen_property_item, content, false)
-        sizeRow = row as LinearLayout
+        sizeRow = row
         row.findViewById<TextView>(R.id.penpicker_property_title).text = "大小"
         sizeValue = row.findViewById(R.id.penpicker_property_value)
         slider = row.findViewById(R.id.pk_property_seekbar)
