@@ -124,8 +124,29 @@ class AnnotationCanvasView(context: Context) : View(context) {
             PenStyle.BALLPOINT -> renderBallpoint(canvas, stroke)
             PenStyle.LASER -> renderLaser(canvas, stroke)
             PenStyle.INK_PEN -> renderRibbon(canvas, stroke, taper = true)
+            PenStyle.WATER_COLOR -> renderWaterColor(canvas, stroke)
             PenStyle.MARKER, PenStyle.HIGHLIGHTER, PenStyle.ERASER ->
                 renderRibbon(canvas, stroke, taper = false)
+        }
+    }
+
+    /** Watercolour: three offset low-alpha passes give a soft wet edge. */
+    private fun renderWaterColor(canvas: Canvas, stroke: InkStroke) {
+        val pts = stroke.points
+        if (pts.isEmpty()) return
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+            color = stroke.color
+        }
+        val base = if (alphaApplied) stroke.alpha else 255
+        for (pass in 0 until 3) {
+            paint.alpha = (base * (0.55f - pass * 0.13f)).toInt().coerceIn(8, 255)
+            paint.strokeWidth = stroke.width * (1f + pass * 0.55f)
+            for (i in 1 until pts.size) {
+                canvas.drawLine(pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y, paint)
+            }
         }
     }
 

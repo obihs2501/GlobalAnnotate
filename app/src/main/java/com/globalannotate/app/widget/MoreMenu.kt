@@ -34,7 +34,7 @@ class MoreMenu(context: Context, private val listener: Listener) : LinearLayout(
         setBackgroundResource(R.drawable.bg_menu)
         elevation = dp(8)
         setPadding(dp(8).toInt(), dp(10).toInt(), dp(8).toInt(), dp(10).toInt())
-        layoutParams = LayoutParams(dp(288).toInt(), WRAP_CONTENT)
+        layoutParams = LayoutParams(dp(200).toInt(), WRAP_CONTENT)
 
         row("笔身手势", R.drawable.ic_pressure) { listener.onGestureSettings() }
         separator()
@@ -51,21 +51,22 @@ class MoreMenu(context: Context, private val listener: Listener) : LinearLayout(
         val r = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(10).toInt(), dp(10).toInt(), dp(10).toInt(), dp(10).toInt())
+            setPadding(dp(12).toInt(), dp(14).toInt(), dp(12).toInt(), dp(14).toInt())
             isClickable = true
+            foreground = Ripple.rounded(context, dp(12))
             setOnClickListener { click() }
         }
         r.addView(IconButton(context).apply {
             iconRes = icon
-            layoutParams = LinearLayout.LayoutParams(dp(32).toInt(), dp(32).toInt())
+            layoutParams = LinearLayout.LayoutParams(dp(24).toInt(), dp(24).toInt())
         })
         r.addView(TextView(context).apply {
             this.text = text
-            textSize = 14f
+            textSize = 16f
             includeFontPadding = false
             setTextColor(ContextCompat.getColor(context, R.color.ga_text_primary))
             layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f).apply {
-                marginStart = dp(12).toInt()
+                marginStart = dp(14).toInt()
             }
         })
         addView(r, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
@@ -76,14 +77,14 @@ class MoreMenu(context: Context, private val listener: Listener) : LinearLayout(
         val r = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(14).toInt(), dp(12).toInt(), dp(14).toInt(), dp(12).toInt())
+            setPadding(dp(12).toInt(), dp(14).toInt(), dp(12).toInt(), dp(14).toInt())
             isClickable = true
         }
         r.addView(TextView(context).apply {
             this.text = text
-            textSize = 14f
+            textSize = 16f
             includeFontPadding = false
-            setTextColor(ContextCompat.getColor(context, R.color.ga_accent))
+            setTextColor(ContextCompat.getColor(context, R.color.ga_text_primary))
             layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
         })
         val check = TextView(context).apply {

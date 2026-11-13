@@ -9,8 +9,7 @@ import android.view.MotionEvent
 import android.view.Gravity
 import android.view.View
 import android.view.View.MeasureSpec
-import android.view.View
-import android.view.View.MeasureSpecGroup.LayoutParams.MATCH_PARENT
+import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import androidx.core.content.ContextCompat

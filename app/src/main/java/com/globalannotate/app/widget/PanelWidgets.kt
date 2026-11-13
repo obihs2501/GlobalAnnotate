@@ -44,7 +44,7 @@ class TrackSlider(context: Context) : View(context) {
         val w = width.toFloat()
         val h = height.toFloat()
         if (w <= 0f || h <= 0f) return
-        val trackH = h * 0.5f
+        val trackH = h * 0.43f
         val top = (h - trackH) / 2f
         rect.set(0f, top, w, top + trackH)
 
@@ -68,12 +68,16 @@ class TrackSlider(context: Context) : View(context) {
         }
         canvas.drawRoundRect(rect, trackH / 2f, trackH / 2f, trackPaint)
 
+        // Mi Canvas thumb: filled disc with a 3dp ring, larger than the track.
         val cx = w * progress
-        val radius = trackH * 0.42f
-        if (knobFilled) {
-            knobPaint.color = Color.WHITE
-            knobPaint.style = Paint.Style.FILL
-            canvas.drawCircle(cx, h / 2f, radius, knobPaint)
+        val radius = trackH * 0.95f
+        knobPaint.style = Paint.Style.FILL
+        knobPaint.color = if (knobFilled) gradientTo else Color.WHITE
+        canvas.drawCircle(cx, h / 2f, radius, knobPaint)
+        ringPaint.color = if (knobFilled) {
+            Color.WHITE
+        } else {
+            ContextCompat.getColor(context, R.color.ga_accent)
         }
         canvas.drawCircle(cx, h / 2f, radius, ringPaint)
     }

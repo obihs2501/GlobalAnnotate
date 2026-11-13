@@ -167,7 +167,7 @@ class AnnotationService : Service(),
         brushPanelParams = anchoredParams(dp(288), dp(420), passiveFlags)
         eraserPanelParams = anchoredParams(dp(288), dp(200), passiveFlags)
         gesturePanelParams = anchoredParams(dp(288), dp(320), passiveFlags)
-        moreMenuParams = anchoredParams(dp(288), WRAP, passiveFlags)
+        moreMenuParams = anchoredParams(dp(200), WRAP, passiveFlags)
 
         // Invisible full-screen catcher: any tap outside an open panel dismisses
         // it, exactly like PopupWindow outside-touch in Mi Canvas.
