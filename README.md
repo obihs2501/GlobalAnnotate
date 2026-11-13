@@ -47,6 +47,19 @@
 
 > Android 12 的 *untrusted touch events* 只允许「足够透明」的浮层穿透，因此穿透/分流模式把窗口 `alpha` 设为 `0.79`，笔迹会略微变淡。这是已知折中。
 
+## 3.1 笔刷与工具栏（HyperOS/Miuix 视觉）
+
+两行胶囊工具栏，视觉对齐 Miuix/HyperOS Surface 规范：26dp 圆角、`surfaceContainerHigh` 半透明底、`#0D84FF` 小米蓝选中态、Cloud/Slate 配色、18 个矢量线性图标。
+
+- **7 种笔刷**：钢笔、铅笔、马克笔、荧光笔（半透明）、激光笔（1.4 秒自动淡出）、压感橡皮、笔画橡皮。
+- **颜色**：10 色色板 + 当前色选中环 + **吸管**（root `screencap` 取笔尖所在像素，零授权跨应用取色）。
+- **粗细**：滑块 1–60dp + 实时笔迹预览；**压感开关**控制笔宽是否随压力变化，橡皮同样吃压感。
+- **操作**：撤销 / 重做 / 清空、模式循环、PNG / PDF 导出、退出。
+- 笔刷配置（笔刷类型、颜色、粗细、压感）用 SharedPreferences 持久化。
+- 轻捏唤出的径向工具环也改为 HyperOS 卡片风格：浅色扇区 + 每格色点 + 蓝色选中态。
+
+> 图标为按 Miuix 线性风格重绘的矢量资源。小米创作 APK 内资源已混淆（`res/` 无可读 drawable 名、AXML 二进制），且仓库是 public，故未直接提取其资源。
+
 ## 4. 功能取舍（个人开发、无企业授权）
 
 **没有**打包 `PenEngine-release_0.3.2.aar`，**没有** App ID / `MiuiAuthHelper` / 任何鉴权调用。`PenEngineClient` 只是复刻了免鉴权的 Binder 握手（`registerListener(cb, packageName)` + `setEnable(2,1)`），这正是 194–197 能到达本应用的原因。
@@ -55,11 +68,11 @@
 |---|---|---|
 | 文字识别 | **不做** | 批注软件用不上，且需授权 |
 | 笔迹预测 / 一笔成形 | 官方版不接 | 用 `app/…/ink/SmartInk.kt` 零授权近似：历史采样 + 速度外推、几何形状识别 |
-| 跨应用取色 | 官方版不接 | `SmartInk.pickColor()` 走 root `screencap` 取像素 |
+| 跨应用取色 | 官方版不接 | **已用零授权方式实现**：工具栏吸管 → root `screencap -p` → `SmartInk.pickColor()` 取笔尖像素 |
 | 手写笔侧旋 | 官方版不接 | `SmartInk.orientationDegrees()` 用标准 `AXIS_ORIENTATION` |
 | 跨应用取色 / 侧旋 / 悬浮预览 / 触控按键 | 备注 | 逆向显示 `MiuiAuthHelper` 仅在 `e/i.java` 出现，`MiuiColorPick`、`MiuiStylusPosture` 都未引用 —— 它们大概率也走 `setEnable` 而非 App ID。但按本项目范围一律不接 |
 
-`SmartInk.kt` 目前是**自包含工具库，默认未接入 UI**（避免未经真机验证就改写笔迹）。接入点：抬笔时在 `AnnotationCanvasView.end()` 调 `recognize()` + `idealise()`，MOVE 时用 `predict()`；取色接到工具环的「颜色」项。
+`SmartInk.kt` 里 `pickColor()` 已接入吸管；`recognize()` / `idealise()` / `predict()` 仍是自包含工具库、默认未接入 UI（避免未经真机验证就改写笔迹）。接入点：抬笔时在 `AnnotationCanvasView.end()` 调 `recognize()` + `idealise()`，MOVE 时用 `predict()`。
 
 ## 5. 目录结构
 
@@ -71,7 +84,7 @@ GlobalAnnotate/
 │     ├─ AnnotationInputService.kt   # 接收 system_server 转发的 MotionEvent
 │     ├─ GestureLaunchReceiver.kt / AnnotationTileService.kt / MainActivity.kt
 │     ├─ Pen… (stylus/)              # 免鉴权 Binder 客户端、194–197 识别
-│     ├─ canvas/ widget/ toolbar/    # 画布、径向工具环、工具栏
+│     ├─ canvas/ widget/ toolbar/ model/  # 画布、工具环、胶囊工具栏、笔刷模型
 │     └─ ink/SmartInk.kt             # 零授权自研替代
 ├─ xposed/                    # libxposed API 102 模块
 │  ├─ src/main/resources/META-INF/xposed/
@@ -138,7 +151,7 @@ hook 点来自 FocusPenProX 在 `OS3.0.307.0.WOCCNXM` / `OS4.0.4.0.XPYCNXM` 的�
 - 只有「模式:分流」会消费 stylus 事件（把它路由进批注层），这是该模式的设计目的；**手指始终 100% 放行**。想用笔操作底层 App 时切回「穿透」即可。
 - 穿透/分流模式 `alpha=0.79`，笔迹略淡（Android 12 untrusted-touch 豁免要求）。
 - `filterInputEvent` 是否被调用、以及 `interceptKeyBeforeQueueing` 的返回值语义，需在真机确认；所有 hook 均 fail-open，异常时原事件照常下发。
-- `SmartInk` 的自研形状识别/预测是保守近似，默认未启用。
+- `SmartInk` 的自研形状识别 / 笔迹预测默认未启用；跨应用取色（吸管）已启用，需要 KSU root 授权。
 - 模块总开关靠广播控制，进程重启后默认关闭，需主应用服务重新广播。
 
 ## 10. 与既有资料的关系
