@@ -1,7 +1,6 @@
 package com.globalannotate.app.widget
 
 import android.content.Context
-import android.content.res.Configuration
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorMatrix
@@ -10,6 +9,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.drawable.BitmapDrawable
 import android.view.View
+import androidx.core.content.ContextCompat
 import com.globalannotate.app.R
 import com.globalannotate.app.model.PenStyle
 
@@ -47,9 +47,18 @@ class BrushGlyph(context: Context) : View(context) {
         colorFilter = ColorMatrixColorFilter(nightMatrix)
     }
 
-    private fun isNight(): Boolean =
-        (resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK) ==
-            Configuration.UI_MODE_NIGHT_YES
+    /**
+     * Decide from the resolved capsule colour instead of uiMode: an overlay
+     * Service keeps the configuration it was created with, so uiMode goes stale
+     * after the user switches theme. The colour resource always follows.
+     */
+    private fun isNight(): Boolean {
+        val capsule = ContextCompat.getColor(context, R.color.ga_capsule_bg)
+        val luminance = 0.299f * android.graphics.Color.red(capsule) +
+            0.587f * android.graphics.Color.green(capsule) +
+            0.114f * android.graphics.Color.blue(capsule)
+        return luminance < 128f
+    }
 
     private fun artworkFor(style: PenStyle): Int = when (style) {
         PenStyle.PENCIL -> R.drawable.brush_pencil
