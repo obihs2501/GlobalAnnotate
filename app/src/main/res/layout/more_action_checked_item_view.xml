@@ -16,6 +16,7 @@
         android:layout_alignParentEnd="true"/>
     <TextView
         android:id="@+id/more_action_checked_item_text"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="@string/pk_more_tool_option_finger_write"
         android:layout_centerVertical="true"
