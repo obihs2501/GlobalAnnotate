@@ -56,6 +56,8 @@ class AnnotationCanvasView(context: Context) : View(context) {
     var onGesture: ((Gesture) -> Unit)? = null
     var onStateChanged: (() -> Unit)? = null
     var onPenDown: (() -> Unit)? = null
+    /** Tap anywhere on the canvas (outside a popup) closes the popups. */
+    var onOutsideTouch: (() -> Unit)? = null
 
     private val detector = FocusPenGestureDetector { gesture -> onGesture?.invoke(gesture) }
 
@@ -390,6 +392,7 @@ class AnnotationCanvasView(context: Context) : View(context) {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) onOutsideTouch?.invoke()
         if (mode != OverlayMode.DRAW) return false
         val tool = if (event.pointerCount > 0) event.getToolType(0) else MotionEvent.TOOL_TYPE_UNKNOWN
         if (!allowFinger && tool != MotionEvent.TOOL_TYPE_STYLUS && tool != MotionEvent.TOOL_TYPE_ERASER) {

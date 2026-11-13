@@ -17,6 +17,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
+import android.view.animation.PathInterpolator
 import android.widget.Toast
 import androidx.core.app.ServiceCompat
 import com.globalannotate.app.canvas.AnnotationCanvasView
@@ -138,6 +139,7 @@ class AnnotationService : Service(),
         toolbarParams = params(dp(620), dp(94), passiveFlags).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             y = dp(24)
+        }
         orbParams = params(dp(72), dp(72), passiveFlags).apply {
             gravity = Gravity.BOTTOM or Gravity.END
             x = dp(24)
@@ -488,8 +490,13 @@ class AnnotationService : Service(),
         }
         val lp = paramsFor(target)
         lp.x = (anchorX - widthPx / 2).coerceIn(dp(8), (screenWidth - widthPx - dp(8)).coerceAtLeast(dp(8)))
+        target.alpha = 0f
+        target.scaleX = PANEL_ENTER_SCALE
+        target.scaleY = PANEL_ENTER_SCALE
         target.visibility = View.VISIBLE
         runCatching { windowManager.updateViewLayout(target, lp) }
+        target.animate().alpha(1f).scaleX(1f).scaleY(1f)
+            .setDuration(PANEL_ANIM_MS).setInterpolator(PanelInterpolator).start()
         palette.hide()
     }
 
@@ -502,7 +509,13 @@ class AnnotationService : Service(),
     }
 
     private fun closePanels() {
-        panels.forEach { it.visibility = View.GONE }
+        panels.forEach { view ->
+            if (view.visibility != View.VISIBLE) return@forEach
+            view.animate().cancel()
+            view.animate().alpha(0f).scaleX(PANEL_ENTER_SCALE).scaleY(PANEL_ENTER_SCALE)
+                .setDuration(PANEL_ANIM_MS).setInterpolator(PanelInterpolator)
+                .withEndAction { view.visibility = View.GONE }.start()
+        }
     }
 
     private fun pickColorFromScreen() {
@@ -705,6 +718,9 @@ class AnnotationService : Service(),
         private const val NOTIFICATION_ID = 42
         private const val CHANNEL_ID = "global_annotate"
         private const val OVERLAY_HIDE_SETTLE_MS = 160L
+        private const val PANEL_ANIM_MS = 150L
+        private const val PANEL_ENTER_SCALE = 0.96f
+        private val PanelInterpolator = PathInterpolator(0f, 0f, 0.2f, 1f)
         private const val MATCH = WindowManager.LayoutParams.MATCH_PARENT
         private const val WRAP = WindowManager.LayoutParams.WRAP_CONTENT
         private const val PREFS = "global_annotate_brush"
