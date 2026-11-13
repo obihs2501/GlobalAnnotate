@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!-- HyperOS pencil-engine service, bound without developer-center auth. -->
+    <queries>
+        <package android:name="com.xiaomi.touchservice" />
+        <package android:name="com.globalannotate.xposed" />
+    </queries>
+
+    <application
+        android:allowBackup="true"
+        android:icon="@android:drawable/ic_menu_edit"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.Material.Light.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".AnnotationService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse|mediaProjection">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Hosts the annotation overlay above other apps." />
+        </service>
+
+        <!-- Bound from system_server by the LSPosed module. The service checks
+             the caller UID itself, so no signature permission is required. -->
+        <service
+            android:name=".AnnotationInputService"
+            android:exported="true" />
+
+        <service
+            android:name=".AnnotationTileService"
+            android:exported="true"
+            android:icon="@android:drawable/ic_menu_edit"
+            android:label="@string/tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
+
+        <!-- Explicit broadcasts from the LSPosed module. Actions are unguessable
+             enough for a self-use tool; receiver additionally checks a token. -->
+        <receiver
+            android:name=".GestureLaunchReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.globalannotate.action.LAUNCH" />
+                <action android:name="com.globalannotate.action.TOGGLE" />
+                <action android:name="com.globalannotate.action.GESTURE" />
+                <action android:name="com.globalannotate.action.SET_SPLIT_MODE" />
+            </intent-filter>
+        </receiver>
+    </application>
+
+</manifest>

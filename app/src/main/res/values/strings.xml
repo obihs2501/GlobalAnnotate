@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">全局批注</string>
+    <string name="tile_label">全局批注</string>
+    <string name="notification_channel">批注服务</string>
+    <string name="notification_title">全局批注已就绪</string>
+    <string name="notification_text">双击或轻捏笔身可随时唤出；点此停止</string>
+    <string name="permission_needed">请先授予「显示在其他应用上层」权限</string>
+    <string name="service_started">全局批注已启动</string>
+    <string name="service_stopped">全局批注已停止</string>
+    <string name="export_ok">已保存：%1$s</string>
+    <string name="export_failed">保存失败</string>
+</resources>
