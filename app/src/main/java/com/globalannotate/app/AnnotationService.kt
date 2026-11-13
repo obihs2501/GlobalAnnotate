@@ -50,6 +50,7 @@ import kotlinx.coroutines.withContext
  */
 class AnnotationService : Service(),
     ToolbarView.Listener,
+    ToolbarView.DragListener,
     RadialPaletteView.Listener,
     ColorPanel.Listener,
     BrushPanel.Listener,
@@ -85,7 +86,11 @@ class AnnotationService : Service(),
     private val penTip = PointF(0f, 0f)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val gestureMap = mutableMapOf<String, GestureAction>()
+    private val prefs by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
+    private var barDragBaseX = 0
+    private var barDragBaseY = 0
     private var screenWidth = 0
+    private var screenHeight = 0
 
     private val panels: List<View>
         get() = listOf(colorPanel, brushPanel, eraserPanel, gesturePanel, moreMenu)
@@ -101,6 +106,7 @@ class AnnotationService : Service(),
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         val bounds = windowManager.maximumWindowMetrics.bounds
         screenWidth = bounds.width()
+        screenHeight = bounds.height()
         penTip.set(screenWidth / 2f, bounds.height() / 2f)
 
         canvas = AnnotationCanvasView(this).apply {
@@ -136,9 +142,14 @@ class AnnotationService : Service(),
         canvasParams = params(MATCH, MATCH, baseFlags)
         // Fixed size: a WRAP overlay window measures to 0 before its content
         // lays out, which made the whole bar disappear.
-        toolbarParams = params(dp(620), dp(94), passiveFlags).apply {
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            y = dp(24)
+        toolbarParams = params(dp(BAR_WIDTH_DP), dp(BAR_HEIGHT_DP), passiveFlags).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = prefs.getInt(KEY_BAR_X, -1).let {
+                if (it >= 0) it else ((screenWidth - dp(BAR_WIDTH_DP)) / 2).coerceAtLeast(0)
+            }
+            y = prefs.getInt(KEY_BAR_Y, -1).let {
+                if (it >= 0) it else (screenHeight - dp(BAR_HEIGHT_DP) - dp(24)).coerceAtLeast(0)
+            }
         }
         orbParams = params(dp(72), dp(72), passiveFlags).apply {
             gravity = Gravity.BOTTOM or Gravity.END
@@ -409,6 +420,23 @@ class AnnotationService : Service(),
 
     override fun onUndo() { canvas.undo() }
     override fun onRedo() { canvas.redo() }
+    override fun onDragStart() {
+        barDragBaseX = toolbarParams.x
+        barDragBaseY = toolbarParams.y
+    }
+
+    override fun onDrag(dx: Float, dy: Float) {
+        val maxX = (screenWidth - toolbarParams.width).coerceAtLeast(0)
+        val maxY = (screenHeight - toolbarParams.height).coerceAtLeast(0)
+        toolbarParams.x = (toolbarParams.x + dx.toInt()).coerceIn(0, maxX)
+        toolbarParams.y = (toolbarParams.y + dy.toInt()).coerceIn(0, maxY)
+        runCatching { windowManager.updateViewLayout(toolbar, toolbarParams) }
+    }
+
+    override fun onDragEnd() {
+        prefs.edit().putInt(KEY_BAR_X, toolbarParams.x).putInt(KEY_BAR_Y, toolbarParams.y).apply()
+    }
+
     override fun onCollapse() = collapseBar()
     override fun onQuit() { stopSelf() }
 
@@ -718,12 +746,16 @@ class AnnotationService : Service(),
         private const val NOTIFICATION_ID = 42
         private const val CHANNEL_ID = "global_annotate"
         private const val OVERLAY_HIDE_SETTLE_MS = 160L
+        private const val BAR_WIDTH_DP = 620
+        private const val BAR_HEIGHT_DP = 94
         private const val PANEL_ANIM_MS = 150L
         private const val PANEL_ENTER_SCALE = 0.96f
         private val PanelInterpolator = PathInterpolator(0f, 0f, 0.2f, 1f)
         private const val MATCH = WindowManager.LayoutParams.MATCH_PARENT
         private const val WRAP = WindowManager.LayoutParams.WRAP_CONTENT
         private const val PREFS = "global_annotate_brush"
+        private const val KEY_BAR_X = "bar_x"
+        private const val KEY_BAR_Y = "bar_y"
         private const val KEY_STYLE = "style"
         private const val KEY_COLOR = "color"
         private const val KEY_SIZE = "size"

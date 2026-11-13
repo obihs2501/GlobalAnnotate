@@ -62,7 +62,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
         orientation = VERTICAL
         setBackgroundResource(R.drawable.bg_panel)
         elevation = dp(8)
-        layoutParams = LayoutParams(dp(360).toInt(), dp(requiredHeightDp()))
+        layoutParams = LayoutParams(dp(360).toInt(), (requiredHeightDp() * density).toInt())
 
         // Title row: 20dp top/bottom margin, straw button aligned to the end.
         val titleRow = LinearLayout(context).apply {

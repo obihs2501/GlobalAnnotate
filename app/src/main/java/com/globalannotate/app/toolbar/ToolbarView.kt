@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.SweepGradient
+import android.view.MotionEvent
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
@@ -18,6 +19,7 @@ import com.globalannotate.app.model.PenStyle
 import com.globalannotate.app.widget.BrushGlyph
 import com.globalannotate.app.widget.IconButton
 import com.globalannotate.app.widget.SwatchView
+import kotlin.math.abs
 import kotlin.math.min
 
 /**
@@ -27,6 +29,13 @@ import kotlin.math.min
  * Selection only lifts the glyph; no ring is drawn.
  */
 class ToolbarView(context: Context, private val listener: Listener) : LinearLayout(context) {
+
+    /** Drag callbacks: the host moves the overlay window, not the view. */
+    interface DragListener {
+        fun onDragStart()
+        fun onDrag(dx: Float, dy: Float)
+        fun onDragEnd()
+    }
 
     interface Listener {
         fun onStyle(style: PenStyle, anchorX: Int)
@@ -159,6 +168,70 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
         return location[0] + view.width / 2
     }
 
+    var dragListener: DragListener? = null
+
+    private var downX = 0f
+    private var downY = 0f
+    private var dragging = false
+    private var dragEligible = true
+
+    /**
+     * The bar floats above other apps, so dragging has to move the window, not
+     * the view. Blank bar area drags; buttons keep their own touches because
+     * we only intercept when nothing clickable sits under the finger.
+     */
+    override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downX = ev.rawX
+                downY = ev.rawY
+                dragging = false
+                // Do not hijack a gesture that started on a button or the scroller.
+                dragEligible = !hitsInteractive(this, ev.x, ev.y)
+                return false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (dragging) return true
+                if (dragEligible && (abs(ev.rawX - downX) > dp(8) || abs(ev.rawY - downY) > dp(8))) {
+                    dragging = true
+                    dragListener?.onDragStart()
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    private fun hitsInteractive(group: android.view.ViewGroup, px: Float, py: Float): Boolean {
+        for (i in group.childCount - 1 downTo 0) {
+            val child = group.getChildAt(i)
+            if (child.visibility != View.VISIBLE) continue
+            val x = px + group.scrollX - child.left
+            val y = py + group.scrollY - child.top
+            if (x < 0f || y < 0f || x > child.width || y > child.height) continue
+            if (child is android.view.ViewGroup && hitsInteractive(child, x, y)) return true
+            if (child.isClickable || child is HorizontalScrollView) return true
+        }
+        return false
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_MOVE -> {
+                dragListener?.onDrag(event.rawX - downX, event.rawY - downY)
+                downX = event.rawX
+                downY = event.rawY
+                return true
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (dragging) dragListener?.onDragEnd()
+                dragging = false
+                return true
+            }
+        }
+        return dragging
+    }
+
     private fun circle(icon: Int, tap: () -> Unit): IconButton =
         IconButton(context).apply {
             iconRes = icon
@@ -204,3 +277,4 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
         }
     }
 }
+
