@@ -17,7 +17,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
-import android.widget.Button
+import com.globalannotate.app.widget.IconButton
 import android.widget.Toast
 import androidx.core.app.ServiceCompat
 import com.globalannotate.app.canvas.AnnotationCanvasView
@@ -52,7 +52,7 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
     private lateinit var canvasParams: WindowManager.LayoutParams
     private lateinit var toolbar: ToolbarView
     private lateinit var toolbarParams: WindowManager.LayoutParams
-    private lateinit var orb: Button
+    private lateinit var orb: IconButton
     private lateinit var orbParams: WindowManager.LayoutParams
     private lateinit var palette: RadialPaletteView
     private lateinit var paletteParams: WindowManager.LayoutParams
@@ -91,12 +91,11 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
         }
 
         toolbar = ToolbarView(this, this)
-        orb = Button(this).apply {
-            text = "批注"
-            isAllCaps = false
-            textSize = 11f
-            alpha = 0.85f
-            setOnClickListener { setActive(!active) }
+        orb = IconButton(this).apply {
+            iconRes = R.drawable.ic_pen
+            onTap = { setActive(!active) }
+            setBackgroundResource(R.drawable.bg_orb)
+            elevation = dp(6)
         }
         palette = RadialPaletteView(this).apply { listener = this@AnnotationService }
 
@@ -107,9 +106,9 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
         canvasParams = params(MATCH, MATCH, baseFlags)
         toolbarParams = params(WRAP, WRAP, passiveFlags).apply {
             gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = dp(6)
+            y = dp(44).toInt()
         }
-        orbParams = params(WRAP, WRAP, passiveFlags).apply {
+        orbParams = params(dp(44).toInt(), dp(44).toInt(), passiveFlags).apply {
             gravity = Gravity.TOP or Gravity.START
             x = dp(4)
             y = dp(140)
@@ -170,7 +169,6 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
         syncPenEngine()
         notifyModule(Actions.SET_SPLIT_MODE, next == OverlayMode.ROOT_SPLIT)
         refreshToolbar()
-        Toast.makeText(this, "模式：$next", Toast.LENGTH_SHORT).show()
     }
 
     private fun applyCanvasFlags() {
