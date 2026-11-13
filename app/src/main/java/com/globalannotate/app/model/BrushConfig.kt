@@ -8,19 +8,22 @@ data class BrushConfig(
     val color: Int = Color.parseColor("#D93025"),
     val widthDp: Float = PenStyle.PEN.defaultWidthDp,
     val pressureEnabled: Boolean = true,
+    val pressureSensitivity: Float = 0.5f,
+    val minWidthDp: Float = 1f,
+    val opacity: Int = 255,
 ) {
     companion object {
         val PALETTE = listOf(
-            Color.parseColor("#202124"), // black
-            Color.parseColor("#5F6368"), // grey
-            Color.parseColor("#FFFFFF"), // white
-            Color.parseColor("#D93025"), // red
-            Color.parseColor("#F4511E"), // orange
-            Color.parseColor("#F9AB00"), // yellow
-            Color.parseColor("#34A853"), // green
-            Color.parseColor("#1A73E8"), // blue
-            Color.parseColor("#7B1FA2"), // purple
-            Color.parseColor("#A1887F"), // brown
+            Color.parseColor("#202124"),
+            Color.parseColor("#5F6368"),
+            Color.parseColor("#FFFFFF"),
+            Color.parseColor("#D93025"),
+            Color.parseColor("#F4511E"),
+            Color.parseColor("#F9AB00"),
+            Color.parseColor("#34A853"),
+            Color.parseColor("#1A73E8"),
+            Color.parseColor("#7B1FA2"),
+            Color.parseColor("#A1887F"),
         )
     }
 }

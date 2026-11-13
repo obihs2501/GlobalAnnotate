@@ -40,12 +40,14 @@ class BrushGlyph(context: Context) : View(context) {
     }
 
     private fun artworkFor(style: PenStyle): Int = when (style) {
-        PenStyle.PEN -> R.drawable.brush_pen
         PenStyle.PENCIL -> R.drawable.brush_pencil
+        PenStyle.BALLPOINT -> R.drawable.brush_ballpoint
+        PenStyle.PEN -> R.drawable.brush_pen
         PenStyle.MARKER -> R.drawable.brush_marker
         PenStyle.HIGHLIGHTER -> R.drawable.brush_highlighter
         PenStyle.LASER -> R.drawable.brush_laser
-        PenStyle.ERASER_PIXEL, PenStyle.ERASER_STROKE -> R.drawable.brush_eraser
+        PenStyle.ERASER_PIXEL -> R.drawable.brush_eraser_pixel
+        PenStyle.ERASER_STROKE -> R.drawable.brush_eraser_stroke
     }
 
     override fun onDraw(canvas: Canvas) {

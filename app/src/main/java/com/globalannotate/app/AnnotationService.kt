@@ -17,7 +17,6 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
-import com.globalannotate.app.widget.BrushGlyph
 import android.widget.Toast
 import androidx.core.app.ServiceCompat
 import com.globalannotate.app.canvas.AnnotationCanvasView
@@ -26,6 +25,10 @@ import com.globalannotate.app.model.BrushConfig
 import com.globalannotate.app.model.PenStyle
 import com.globalannotate.app.stylus.PenEngineClient
 import com.globalannotate.app.toolbar.ToolbarView
+import com.globalannotate.app.widget.BrushGlyph
+import com.globalannotate.app.widget.BrushPanel
+import com.globalannotate.app.widget.ColorPanel
+import com.globalannotate.app.widget.MoreMenu
 import com.globalannotate.app.widget.RadialPaletteView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -36,16 +39,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Hosts every overlay window and owns the annotation lifecycle.
- *
- * Interaction model follows Apple Pencil rather than a key-mapping table:
- *   squeeze  -> radial tool ring at the pen tip
- *   double   -> switch between current and previous tool (pen <-> eraser)
- *   hover    -> pen-tip preview
- *   slide    -> brush width
- *   corner   -> pen-tip swipe in from the top-right brings up annotation
+ * Hosts the annotation overlay plus three independent Mi Canvas-style panels.
+ * The main capsule keeps only brushes, quick colours and the exit button.
  */
-class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Listener {
+class AnnotationService : Service(),
+    ToolbarView.Listener,
+    RadialPaletteView.Listener,
+    ColorPanel.Listener,
+    BrushPanel.Listener,
+    MoreMenu.Listener {
 
     private lateinit var windowManager: WindowManager
     private lateinit var canvas: AnnotationCanvasView
@@ -56,9 +58,17 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
     private lateinit var orbParams: WindowManager.LayoutParams
     private lateinit var palette: RadialPaletteView
     private lateinit var paletteParams: WindowManager.LayoutParams
+    private lateinit var colorPanel: ColorPanel
+    private lateinit var colorPanelParams: WindowManager.LayoutParams
+    private lateinit var brushPanel: BrushPanel
+    private lateinit var brushPanelParams: WindowManager.LayoutParams
+    private lateinit var moreMenu: MoreMenu
+    private lateinit var moreMenuParams: WindowManager.LayoutParams
 
     private var mode: OverlayMode = OverlayMode.DRAW
     private var active = false
+    private var toolbarVisible = true
+    private var autoMinimize = true
     private var penEngine: PenEngineClient? = null
     private val penTip = PointF(0f, 0f)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -67,9 +77,7 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
         super.onCreate()
         createNotificationChannel()
         ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
-            buildNotification(),
+            this, NOTIFICATION_ID, buildNotification(),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
         )
 
@@ -84,21 +92,21 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
         canvas.setOnHoverListener { _, event ->
             if (event.actionMasked == MotionEvent.ACTION_HOVER_ENTER ||
                 event.actionMasked == MotionEvent.ACTION_HOVER_MOVE
-            ) {
-                penTip.set(event.x, event.y)
-            }
+            ) penTip.set(event.x, event.y)
             false
         }
 
         toolbar = ToolbarView(this, this)
         orb = BrushGlyph(this).apply {
             large = true
-            accentRing = true
             setBackgroundResource(R.drawable.bg_orb)
             elevation = dp(6).toFloat()
             setOnClickListener { toggleToolbar() }
         }
         palette = RadialPaletteView(this).apply { listener = this@AnnotationService }
+        colorPanel = ColorPanel(this, this)
+        brushPanel = BrushPanel(this, this)
+        moreMenu = MoreMenu(this, this)
 
         val baseFlags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
@@ -115,12 +123,30 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
             y = dp(28)
         }
         paletteParams = params(MATCH, MATCH, passiveFlags)
+        colorPanelParams = params(dp(360), WRAP, passiveFlags).apply {
+            gravity = Gravity.BOTTOM or Gravity.END
+            x = dp(24)
+            y = dp(160)
+        }
+        brushPanelParams = params(dp(320), WRAP, passiveFlags).apply {
+            gravity = Gravity.CENTER
+            y = -dp(40)
+        }
+        moreMenuParams = params(dp(260), WRAP, passiveFlags).apply {
+            gravity = Gravity.BOTTOM or Gravity.END
+            x = dp(24)
+            y = dp(160)
+        }
 
         windowManager.addView(canvas, canvasParams)
         windowManager.addView(toolbar, toolbarParams)
         windowManager.addView(palette, paletteParams)
+        windowManager.addView(colorPanel, colorPanelParams)
+        windowManager.addView(brushPanel, brushPanelParams)
+        windowManager.addView(moreMenu, moreMenuParams)
         windowManager.addView(orb, orbParams)
 
+        listOf(colorPanel, brushPanel, moreMenu).forEach { it.visibility = View.GONE }
         restoreBrush()
         Session.service = this
         Session.canvas = canvas
@@ -151,26 +177,15 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
         }
     }
 
-    private var toolbarVisible = true
-
-    private fun toggleToolbar() {
-        toolbarVisible = !toolbarVisible
-        if (toolbarVisible && !active) setActive(true)
-        applyToolbarVisibility()
-    }
-
-    private fun applyToolbarVisibility() {
-        if (::toolbar.isInitialized) {
-            toolbar.visibility = if (active && toolbarVisible) View.VISIBLE else View.GONE
-        }
-    }
-
     private fun setActive(value: Boolean) {
         active = value
         Session.active = value
         canvas.visibility = if (value) View.VISIBLE else View.GONE
         applyToolbarVisibility()
-        if (!value) palette.hide()
+        if (!value) {
+            palette.hide()
+            closePanels()
+        }
         applyCanvasFlags()
         syncPenEngine()
         refreshToolbar()
@@ -194,8 +209,6 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
             OverlayMode.PASSTHROUGH, OverlayMode.ROOT_SPLIT -> {
                 flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                // Android 12 "untrusted touch" only permits pass-through for
-                // sufficiently translucent overlays (<= 0.8 on current builds).
                 canvasParams.alpha = 0.79f
             }
         }
@@ -207,8 +220,6 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
         else canvas.clearGestureFocus()
     }
 
-    /** DRAW mode needs the touch-film handshake so 194–197 reach our window.
-     *  In ROOT_SPLIT the module owns the gesture stream globally instead. */
     private fun syncPenEngine() {
         if (active && mode == OverlayMode.DRAW) {
             if (penEngine == null) penEngine = PenEngineClient(this)
@@ -219,13 +230,20 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
         }
     }
 
-    private fun applyRemoteGesture(gesture: Gesture) {
-        if (!active) {
-            // Picking up the pen and squeezing/double-tapping while hidden is
-            // the most natural "summon" — same as tapping the Pencil on iPad.
-            setActive(true)
-            return
+    private fun toggleToolbar() {
+        toolbarVisible = !toolbarVisible
+        if (toolbarVisible && !active) setActive(true)
+        applyToolbarVisibility()
+    }
+
+    private fun applyToolbarVisibility() {
+        if (::toolbar.isInitialized) {
+            toolbar.visibility = if (active && toolbarVisible) View.VISIBLE else View.GONE
         }
+    }
+
+    private fun applyRemoteGesture(gesture: Gesture) {
+        if (!active) { setActive(true); return }
         applyGesture(gesture)
     }
 
@@ -239,10 +257,7 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
     }
 
     private fun togglePalette() {
-        if (!active) {
-            setActive(true)
-            return
-        }
+        if (!active) { setActive(true); return }
         if (palette.visibility == View.VISIBLE) palette.hide()
         else palette.showAt(penTip.x, penTip.y)
     }
@@ -253,7 +268,8 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
     }
 
     private fun adjustWidth(direction: Float) {
-        canvas.baseWidth = (canvas.baseWidth + direction * 2f).coerceIn(2f, 48f)
+        canvas.baseWidth = canvas.baseWidth + direction * 2f
+        refreshToolbar()
     }
 
     override fun onPaletteAction(action: RadialPaletteView.PaletteAction) {
@@ -291,18 +307,56 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
     }
 
     // ── ToolbarView.Listener ────────────────────────────────────────────────
+    override fun onStyle(style: PenStyle) { canvas.style = style; refreshToolbar() }
+    override fun onColor(color: Int) {
+        canvas.penColor = color
+        colorPanel.color = color
+        refreshToolbar()
+    }
+    override fun onOpenColorPanel() {
+        colorPanel.color = canvas.brush.color
+        colorPanel.opacity = canvas.brush.opacity
+        showPanel(colorPanel)
+    }
+    override fun onOpenBrushPanel() {
+        brushPanel.brush = canvas.brush
+        showPanel(brushPanel)
+    }
+    override fun onOpenMoreMenu() = showPanel(moreMenu)
+    override fun onUndo() { canvas.undo() }
+    override fun onRedo() { canvas.redo() }
+    override fun onQuit() { stopSelf() }
     override fun onCollapse() {
         toolbarVisible = false
         applyToolbarVisibility()
     }
-    override fun onStyle(style: PenStyle) { canvas.style = style; refreshToolbar() }
-    override fun onColor(color: Int) { canvas.penColor = color; refreshToolbar() }
+
+    // ── ColorPanel.Listener ─────────────────────────────────────────────────
+    override fun onOpacity(alpha: Int) {
+        canvas.brush = canvas.brush.copy(opacity = alpha)
+        refreshToolbar()
+    }
     override fun onPipette() = pickColorFromScreen()
-    override fun onWidth(widthDp: Float) { canvas.baseWidth = widthDp; refreshToolbar() }
-    override fun onPressure(enabled: Boolean) { canvas.pressureEnabled = enabled; refreshToolbar() }
-    override fun onUndo() { canvas.undo() }
-    override fun onRedo() { canvas.redo() }
-    override fun onClear() { canvas.clear() }
+    override fun onClose() = closePanels()
+
+    // ── BrushPanel.Listener ─────────────────────────────────────────────────
+    override fun onParam(kind: BrushPanel.ParamKind, value: Float) {
+        val b = canvas.brush
+        canvas.brush = when (kind) {
+            BrushPanel.ParamKind.WIDTH -> b.copy(widthDp = 1f + value * 59f)
+            BrushPanel.ParamKind.PRESSURE -> b.copy(pressureSensitivity = value)
+            BrushPanel.ParamKind.TIP -> b.copy(minWidthDp = 1f + value * 9f)
+            BrushPanel.ParamKind.OPACITY -> b.copy(opacity = (value * 255f).toInt().coerceIn(0, 255))
+        }
+        refreshToolbar()
+        brushPanel.brush = canvas.brush
+    }
+
+    // ── MoreMenu.Listener ───────────────────────────────────────────────────
+    override fun onInsertText() = notImplemented("插入文本")
+    override fun onInsertShape() = notImplemented("插入形状")
+    override fun onAutoMinimize(enabled: Boolean) { autoMinimize = enabled }
+    override fun onFingerDraw(enabled: Boolean) { canvas.allowFinger = enabled }
     override fun onCycleMode() {
         setMode(
             when (mode) {
@@ -311,25 +365,41 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
                 OverlayMode.ROOT_SPLIT -> OverlayMode.DRAW
             },
         )
+        closePanels()
     }
-    override fun onSavePng() = export(pdf = false)
-    override fun onSavePdf() = export(pdf = true)
-    override fun onQuit() { stopSelf() }
+    override fun onSavePng() { export(pdf = false); closePanels() }
+    override fun onSavePdf() { export(pdf = true); closePanels() }
+    override fun onClear() { canvas.clear(); closePanels() }
 
-    /** Zero-auth cross-app eyedropper: root screenshot + pixel at the pen tip. */
+    private fun notImplemented(name: String) {
+        Toast.makeText(this, "$name 暂未实现", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showPanel(target: View) {
+        listOf(colorPanel, brushPanel, moreMenu).forEach {
+            it.visibility = if (it === target) View.VISIBLE else View.GONE
+        }
+        palette.hide()
+    }
+
+    private fun closePanels() {
+        listOf(colorPanel, brushPanel, moreMenu).forEach { it.visibility = View.GONE }
+    }
+
     private fun pickColorFromScreen() {
         scope.launch {
-            val screen = withOverlaysHidden {
+            val screenBitmap = withOverlaysHidden {
                 withContext(Dispatchers.IO) { Exporter.captureScreenRoot() }
             }
-            if (screen == null) {
+            if (screenBitmap == null) {
                 Exporter.lastCaptureError?.let { Log.w(TAG, "pipette failed: $it") }
                 Toast.makeText(this@AnnotationService, "取色失败（需要 root 授权）", Toast.LENGTH_SHORT).show()
                 return@launch
             }
-            val picked = SmartInk.pickColor(screen, penTip.x.toInt(), penTip.y.toInt())
-            screen.recycle()
+            val picked = SmartInk.pickColor(screenBitmap, penTip.x.toInt(), penTip.y.toInt())
+            screenBitmap.recycle()
             canvas.penColor = picked
+            colorPanel.color = picked
             refreshToolbar()
             Toast.makeText(
                 this@AnnotationService,
@@ -337,29 +407,6 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
                 Toast.LENGTH_SHORT,
             ).show()
         }
-    }
-
-    private fun saveBrush() {
-        val b = canvas.brush
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
-            .putString(KEY_STYLE, b.style.name)
-            .putInt(KEY_COLOR, b.color)
-            .putFloat(KEY_WIDTH, b.widthDp)
-            .putBoolean(KEY_PRESSURE, b.pressureEnabled)
-            .apply()
-    }
-
-    private fun restoreBrush() {
-        val p = getSharedPreferences(PREFS, MODE_PRIVATE)
-        val style = runCatching {
-            PenStyle.valueOf(p.getString(KEY_STYLE, PenStyle.PEN.name) ?: PenStyle.PEN.name)
-        }.getOrDefault(PenStyle.PEN)
-        canvas.brush = BrushConfig(
-            style = style,
-            color = p.getInt(KEY_COLOR, Color.parseColor("#D93025")),
-            widthDp = p.getFloat(KEY_WIDTH, style.defaultWidthDp),
-            pressureEnabled = p.getBoolean(KEY_PRESSURE, true),
-        )
     }
 
     private fun export(pdf: Boolean) {
@@ -375,8 +422,6 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
         }
     }
 
-    /** Hides every window this service owns so the capture contains only the
-     *  underlying app (the toolbar's window background would otherwise leak in). */
     private suspend fun composeExportBitmap(): Bitmap {
         val background = withOverlaysHidden {
             withContext(Dispatchers.IO) { Exporter.captureScreenRoot() }
@@ -399,6 +444,9 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
             toolbar to toolbar.visibility,
             orb to orb.visibility,
             palette to palette.visibility,
+            colorPanel to colorPanel.visibility,
+            brushPanel to brushPanel.visibility,
+            moreMenu to moreMenu.visibility,
         )
         states.forEach { (view, _) -> view.visibility = View.INVISIBLE }
         return try {
@@ -409,10 +457,37 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
         }
     }
 
+    private fun saveBrush() {
+        val b = canvas.brush
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+            .putString(KEY_STYLE, b.style.name)
+            .putInt(KEY_COLOR, b.color)
+            .putFloat(KEY_WIDTH, b.widthDp)
+            .putBoolean(KEY_PRESSURE, b.pressureEnabled)
+            .putFloat(KEY_SENSITIVITY, b.pressureSensitivity)
+            .putFloat(KEY_MIN_WIDTH, b.minWidthDp)
+            .putInt(KEY_OPACITY, b.opacity)
+            .apply()
+    }
+
+    private fun restoreBrush() {
+        val p = getSharedPreferences(PREFS, MODE_PRIVATE)
+        val style = runCatching {
+            PenStyle.valueOf(p.getString(KEY_STYLE, PenStyle.PEN.name) ?: PenStyle.PEN.name)
+        }.getOrDefault(PenStyle.PEN)
+        canvas.brush = BrushConfig(
+            style = style,
+            color = p.getInt(KEY_COLOR, Color.parseColor("#D93025")),
+            widthDp = p.getFloat(KEY_WIDTH, style.defaultWidthDp),
+            pressureEnabled = p.getBoolean(KEY_PRESSURE, true),
+            pressureSensitivity = p.getFloat(KEY_SENSITIVITY, 0.5f),
+            minWidthDp = p.getFloat(KEY_MIN_WIDTH, 1f),
+            opacity = p.getInt(KEY_OPACITY, 255),
+        )
+    }
+
     private fun notifyModule(action: String, enabled: Boolean) {
         val intent = Intent(action)
-            // No setPackage(): the receiver is dynamically registered inside
-            // system_server, whose Context belongs to "android", not this APK.
             .putExtra(Actions.EXTRA_TOKEN, Actions.TOKEN)
             .putExtra(Actions.EXTRA_ENABLED, enabled)
             .addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
@@ -421,19 +496,16 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
 
     private fun params(width: Int, height: Int, flags: Int): WindowManager.LayoutParams =
         WindowManager.LayoutParams(
-            width,
-            height,
+            width, height,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            flags,
-            PixelFormat.TRANSLUCENT,
+            flags, PixelFormat.TRANSLUCENT,
         ).apply { gravity = Gravity.TOP or Gravity.START }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
-            CHANNEL_ID,
-            getString(R.string.notification_channel),
+            CHANNEL_ID, getString(R.string.notification_channel),
             NotificationManager.IMPORTANCE_LOW,
         )
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
@@ -441,8 +513,7 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
 
     private fun buildNotification(): Notification {
         val toggle = PendingIntent.getBroadcast(
-            this,
-            1,
+            this, 1,
             Intent(this, GestureLaunchReceiver::class.java)
                 .setAction(Actions.TOGGLE)
                 .putExtra(Actions.EXTRA_TOKEN, Actions.TOKEN),
@@ -463,7 +534,7 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
         notifyModule(Actions.SET_SPLIT_MODE, false)
         penEngine?.disconnect()
         penEngine = null
-        listOf(canvas, toolbar, palette, orb).forEach { view ->
+        listOf(canvas, toolbar, palette, colorPanel, brushPanel, moreMenu, orb).forEach { view ->
             if (view.isAttachedToWindow) runCatching { windowManager.removeView(view) }
         }
         if (Session.service === this) Session.service = null
@@ -477,17 +548,20 @@ class AnnotationService : Service(), ToolbarView.Listener, RadialPaletteView.Lis
     override fun onBind(intent: Intent?): IBinder? = null
 
     companion object {
-        private const val NOTIFICATION_ID = 42
         private const val TAG = "AnnotationService"
+        private const val NOTIFICATION_ID = 42
+        private const val CHANNEL_ID = "global_annotate"
+        private const val OVERLAY_HIDE_SETTLE_MS = 160L
+        private const val MATCH = WindowManager.LayoutParams.MATCH_PARENT
+        private const val WRAP = WindowManager.LayoutParams.WRAP_CONTENT
         private const val PREFS = "global_annotate_brush"
         private const val KEY_STYLE = "style"
         private const val KEY_COLOR = "color"
         private const val KEY_WIDTH = "width"
         private const val KEY_PRESSURE = "pressure"
-        private const val CHANNEL_ID = "global_annotate"
-        private const val OVERLAY_HIDE_SETTLE_MS = 160L
-        private val MATCH = WindowManager.LayoutParams.MATCH_PARENT
-        private val WRAP = WindowManager.LayoutParams.WRAP_CONTENT
+        private const val KEY_SENSITIVITY = "sensitivity"
+        private const val KEY_MIN_WIDTH = "min_width"
+        private const val KEY_OPACITY = "opacity"
 
         var isRunning: Boolean = false
             private set
