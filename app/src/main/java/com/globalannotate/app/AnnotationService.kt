@@ -146,17 +146,17 @@ class AnnotationService : Service(),
             y = dp(16)
         }
         paletteParams = params(MATCH, MATCH, passiveFlags)
-        colorPanelParams = params(dp(360), WRAP, passiveFlags).apply {
+        colorPanelParams = params(dp(360), dp(580), passiveFlags).apply {
             gravity = Gravity.BOTTOM or Gravity.END
             x = dp(24)
             y = dp(170)
         }
-        brushPanelParams = params(dp(320), WRAP, passiveFlags).apply {
+        brushPanelParams = params(dp(320), dp(430), passiveFlags).apply {
             gravity = Gravity.BOTTOM or Gravity.END
             x = dp(24)
             y = dp(170)
         }
-        eraserPanelParams = params(dp(280), WRAP, passiveFlags).apply {
+        eraserPanelParams = params(dp(280), dp(210), passiveFlags).apply {
             gravity = Gravity.BOTTOM or Gravity.END
             x = dp(24)
             y = dp(170)
@@ -344,13 +344,22 @@ class AnnotationService : Service(),
 
     // ── ToolbarView.Listener ────────────────────────────────────────────────
     override fun onStyle(style: PenStyle) {
-        canvas.brush = canvas.brush.copy(style = style, size = style.defaultSize.toFloat(), alpha = style.defaultAlpha)
-        refreshToolbar()
+        val sameBrush = canvas.brush.style == style
+        if (!sameBrush) {
+            canvas.brush = canvas.brush.copy(
+                style = style,
+                size = style.defaultSize.toFloat(),
+                alpha = style.defaultAlpha,
+            )
+            refreshToolbar()
+        }
+        // Tapping the active brush opens its settings; tapping again closes them.
         if (style.isEraser) {
             eraserPanel.brush = canvas.brush
             showPanel(eraserPanel)
         } else {
-            closePanels()
+            brushPanel.brush = canvas.brush
+            showPanel(brushPanel)
         }
     }
 
@@ -443,8 +452,24 @@ class AnnotationService : Service(),
     private fun showPanel(target: View) {
         val alreadyOpen = target.visibility == View.VISIBLE
         panels.forEach { it.visibility = View.GONE }
-        if (!alreadyOpen) target.visibility = View.VISIBLE
+        if (!alreadyOpen) {
+            target.visibility = View.VISIBLE
+            remeasure(target)
+        }
         palette.hide()
+    }
+
+    /** Overlay windows do not always re-measure after children change. */
+    private fun remeasure(view: View) {
+        val lp = when (view) {
+            brushPanel -> brushPanelParams
+            colorPanel -> colorPanelParams
+            eraserPanel -> eraserPanelParams
+            else -> moreMenuParams
+        }
+        view.post {
+            runCatching { windowManager.updateViewLayout(view, lp) }
+        }
     }
 
     private fun closePanels() {
