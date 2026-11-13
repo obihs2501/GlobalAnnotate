@@ -113,7 +113,7 @@ class AnnotationService : Service(),
         val passiveFlags = baseFlags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
 
         canvasParams = params(MATCH, MATCH, baseFlags)
-        toolbarParams = params((screen.width() * 0.62f).toInt(), WRAP, passiveFlags).apply {
+        toolbarParams = params((screen.width() * 0.78f).toInt(), WRAP, passiveFlags).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             y = dp(32)
         }
