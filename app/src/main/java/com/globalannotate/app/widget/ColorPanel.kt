@@ -161,7 +161,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
         satBar.progress = hsv[1]
         lightBar.baseColor = Color.HSVToColor(floatArrayOf(hsv[0], hsv[1], 1f))
         lightBar.progress = hsv[2]
-        if (::alphaLabel.isInitialized) alphaLabel.text = "${(alpha * 100 / 255)}%"
+        alphaLabel.text = "${(alpha * 100 / 255)}%"
     }
 
     private fun dp(value: Int): Int = (value * density).toInt()

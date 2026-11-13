@@ -36,9 +36,9 @@ open class PickerBar @JvmOverloads constructor(
 
     private val density = resources.displayMetrics.density
     private val rect = RectF()
-    private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val thumbPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    protected val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    protected val thumbPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    protected val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 3f * density
     }
