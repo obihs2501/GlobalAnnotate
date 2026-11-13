@@ -85,6 +85,16 @@ class BrushGlyph(context: Context) : View(context) {
         val left = (w - drawWidth) / 2f
         val top = (h - drawHeight) / 2f
         dst.set(left, top, left + drawWidth, top + drawHeight)
+        // The eraser ships as a luminance mask only; tint it so it reads as a
+        // grey rubber on the dark capsule instead of a white block.
+        if (style.isEraser) {
+            tintPaint.colorFilter = PorterDuffColorFilter(
+                if (night) Color.parseColor("#9A9A9A") else Color.parseColor("#6B6B6B"),
+                PorterDuff.Mode.SRC_IN,
+            )
+            canvas.drawBitmap(body, null, dst, tintPaint)
+            return
+        }
         canvas.drawBitmap(body, null, dst, null)
 
         // Head pieces are positioned inside the same 144x369 canvas, so they use
