@@ -36,6 +36,7 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
         fun onUndo()
         fun onRedo()
         fun onCollapse()
+        fun onQuit()
     }
 
     private val density = resources.displayMetrics.density
@@ -128,6 +129,16 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
         }
         moreAnchor = moreButton
         row.addView(moreButton)
+
+        // A divider keeps 退出 physically away from ⋮ (export lives in the menu).
+        row.addView(View(context).apply {
+            setBackgroundColor(ContextCompat.getColor(context, R.color.ga_divider))
+            layoutParams = LinearLayout.LayoutParams(dp(1).toInt(), dp(24).toInt()).apply {
+                marginStart = dp(10).toInt()
+                marginEnd = dp(10).toInt()
+            }
+        })
+        row.addView(circle(R.drawable.ic_close) { listener.onQuit() })
         addView(scroll(row))
     }
 

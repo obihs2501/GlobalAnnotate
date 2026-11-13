@@ -332,7 +332,8 @@ class AnnotationService : Service(),
 
     /** Squeeze → next quick colour, the "换颜色" shortcut. */
     private fun cycleColor() {
-        val paletteColors = BrushConfig.QUICK_COLORS
+        // Cycle the full palette so it reaches every colour the panel offers.
+        val paletteColors = BrushConfig.PALETTE
         val index = paletteColors.indexOf(canvas.brush.color)
         val next = paletteColors[(index + 1).mod(paletteColors.size)]
         canvas.brush = canvas.brush.copy(color = next)
@@ -421,6 +422,7 @@ class AnnotationService : Service(),
     override fun onUndo() { canvas.undo() }
     override fun onRedo() { canvas.redo() }
     override fun onCollapse() = collapseBar()
+    override fun onQuit() { stopSelf() }
 
     // ── ColorPanel.Listener ─────────────────────────────────────────────────
     override fun onOpacity(alpha: Int) {

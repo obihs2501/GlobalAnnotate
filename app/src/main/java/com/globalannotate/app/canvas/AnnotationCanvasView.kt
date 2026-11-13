@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PointF
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
@@ -24,12 +25,19 @@ import kotlin.math.hypot
 import kotlin.math.sin
 
 /**
- * Offscreen ink bitmap + stroke history. Each [PenStyle] renders differently so
- * the drawing matches the brush artwork: graphite grain for the pencil, a thin
- * sheen for the ballpoint, pressure-driven ink for the fountain pen, square
- * translucent strokes for marker/highlighter, glow + fade for the laser.
- * The eraser has no alpha and no pressure response — only size (4..32), like
- * Mi Canvas' eraser popup.
+ * Ink surface. Every [PenStyle] has its own renderer so the strokes actually
+ * look different, not just wider:
+ *
+ *  - 铅笔      three jittered hairlines + graphite dust
+ *  - 圆珠笔    constant hairline with a thin sheen
+ *  - 钢笔      variable-width ribbon that tapers at both ends
+ *  - 马克笔    flat square-cap ribbon, translucent, darkens on overlap
+ *  - 荧光笔    same ribbon, very low alpha, wide
+ *  - 激光笔    glow + 1.4s fade
+ *  - 橡皮      CLEAR with size only (no alpha, no pressure)
+ *
+ * While the pen is down the newest segment is painted incrementally for speed;
+ * on pen-up the whole stroke is re-rendered so taper and strands are exact.
  */
 class AnnotationCanvasView(context: Context) : View(context) {
 
@@ -47,41 +55,27 @@ class AnnotationCanvasView(context: Context) : View(context) {
     var allowFinger: Boolean = false
     var onGesture: ((Gesture) -> Unit)? = null
     var onStateChanged: (() -> Unit)? = null
-    /** Fired when the pen touches the surface, so the bar can auto-collapse. */
     var onPenDown: (() -> Unit)? = null
 
     private val detector = FocusPenGestureDetector { gesture -> onGesture?.invoke(gesture) }
 
-    /** Active size: eraser keeps its own value, pens use the brush size. */
     private fun sizeFor(): Float =
         if (brush.style.isEraser) brush.eraserSize else brush.size
 
     private fun widthFor(pressure: Float): Float {
         val px = brush.style.toPixels(sizeFor(), density)
-        if (brush.style.isEraser) return px // no pressure response for erasing
+        if (brush.style.isEraser) return px
         return when (brush.style) {
             PenStyle.PENCIL -> {
                 val p = pressure.coerceIn(0.15f, 1f)
-                px * (0.45f + 0.55f * p * (0.5f + brush.sensitivity))
+                px * (0.55f + 0.45f * p * (0.5f + brush.sensitivity))
             }
             PenStyle.INK_PEN -> {
                 val p = pressure.coerceIn(0.05f, 1f)
-                px * (0.25f + 1.15f * p * (0.4f + brush.sensitivity))
+                px * (0.20f + 1.30f * p * (0.4f + brush.sensitivity))
             }
-            PenStyle.BALLPOINT -> px * 0.92f // almost no width variation
+            PenStyle.BALLPOINT -> px * 0.92f
             else -> px
-        }
-    }
-
-    private fun paintFor(stroke: InkStroke): Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeCap = if (stroke.style.squareCap) Paint.Cap.SQUARE else Paint.Cap.ROUND
-        strokeJoin = Paint.Join.ROUND
-        if (stroke.style.isEraser) {
-            xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
-            color = Color.BLACK
-        } else {
-            color = stroke.color
         }
     }
 
@@ -104,87 +98,209 @@ class AnnotationCanvasView(context: Context) : View(context) {
     private fun rebuildInk() {
         val canvas = inkCanvas ?: return
         canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-        strokes.forEach { drawStroke(canvas, it) }
+        strokes.forEach { renderStroke(canvas, it) }
         invalidate()
     }
 
-    private fun drawStroke(canvas: Canvas, stroke: InkStroke) {
-        val points = stroke.points
-        if (points.isEmpty()) return
-        val paint = paintFor(stroke)
-        if (points.size == 1) {
-            paint.strokeWidth = points[0].width
-            canvas.drawPoint(points[0].x, points[0].y, paint)
-            return
-        }
-        for (i in 1 until points.size) {
-            drawSegment(canvas, points[i - 1], points[i], stroke, paint)
+    // ── renderers ───────────────────────────────────────────────────────────
+
+    private fun fillPaintFor(stroke: InkStroke): Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        if (stroke.style.isEraser) {
+            xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+            color = Color.BLACK
+        } else {
+            color = stroke.color
         }
     }
 
-    private fun drawTail(stroke: InkStroke) {
-        val canvas = inkCanvas ?: return
-        val points = stroke.points
-        val paint = paintFor(stroke)
-        if (points.size == 1) {
-            paint.strokeWidth = points[0].width
-            canvas.drawPoint(points[0].x, points[0].y, paint)
-            return
+    private fun renderStroke(canvas: Canvas, stroke: InkStroke) {
+        val pts = stroke.points
+        if (pts.isEmpty()) return
+        when (stroke.style) {
+            PenStyle.PENCIL -> renderPencil(canvas, stroke)
+            PenStyle.BALLPOINT -> renderBallpoint(canvas, stroke)
+            PenStyle.LASER -> renderLaser(canvas, stroke)
+            PenStyle.INK_PEN -> renderRibbon(canvas, stroke, taper = true)
+            PenStyle.MARKER, PenStyle.HIGHLIGHTER, PenStyle.ERASER ->
+                renderRibbon(canvas, stroke, taper = false)
         }
-        drawSegment(canvas, points[points.size - 2], points[points.size - 1], stroke, paint)
     }
 
-    private fun drawSegment(canvas: Canvas, a: InkPoint, b: InkPoint, stroke: InkStroke, paint: Paint) {
-        val width = ((a.width + b.width) * 0.5f).coerceAtLeast(0.6f)
-        paint.strokeWidth = width
-
-        if (stroke.style.glow) {
-            val halo = Paint(paint).apply {
-                alpha = 70
-                strokeWidth = width * 2.4f
+    /** Filled quad strip: real variable width, optional tapered ends. */
+    private fun renderRibbon(canvas: Canvas, stroke: InkStroke, taper: Boolean) {
+        val pts = stroke.points
+        val paint = fillPaintFor(stroke)
+        if (pts.size == 1) {
+            canvas.drawCircle(pts[0].x, pts[0].y, pts[0].width / 2f, paint)
+            return
+        }
+        val left = ArrayList<FloatArray>(pts.size)
+        val right = ArrayList<FloatArray>(pts.size)
+        for (i in pts.indices) {
+            val prev = pts[(i - 1).coerceAtLeast(0)]
+            val next = pts[(i + 1).coerceAtMost(pts.size - 1)]
+            var dx = next.x - prev.x
+            var dy = next.y - prev.y
+            val len = hypot(dx, dy).coerceAtLeast(0.0001f)
+            dx /= len
+            dy /= len
+            var half = pts[i].width / 2f
+            if (taper) {
+                val t = i / (pts.size - 1f)
+                val pinch = minOf(t, 1f - t) * 2f
+                half *= 0.30f + 0.70f * pinch
             }
-            canvas.drawLine(a.x, a.y, b.x, b.y, halo)
+            left.add(floatArrayOf(pts[i].x - dy * half, pts[i].y + dx * half))
+            right.add(floatArrayOf(pts[i].x + dy * half, pts[i].y - dx * half))
         }
+        val path = Path()
+        path.moveTo(left[0][0], left[0][1])
+        for (i in 1 until left.size) path.lineTo(left[i][0], left[i][1])
+        for (i in right.indices.reversed()) path.lineTo(right[i][0], right[i][1])
+        path.close()
+        canvas.drawPath(path, paint)
+    }
 
-        canvas.drawLine(a.x, a.y, b.x, b.y, paint)
+    private fun renderBallpoint(canvas: Canvas, stroke: InkStroke) {
+        val pts = stroke.points
+        val base = pts.first().width
+        val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+            color = stroke.color
+            strokeWidth = base
+        }
+        val path = pathOf(pts)
+        canvas.drawPath(path, line)
+        canvas.drawPath(path, Paint(line).apply {
+            strokeWidth = (base * 0.28f).coerceAtLeast(0.6f)
+            color = Color.argb(90, 255, 255, 255)
+        })
+    }
 
-        if (stroke.style.inkHighlight) {
-            val sheen = Paint(paint).apply {
-                strokeWidth = width * 0.30f
-                color = Color.argb(
-                    80,
-                    minOf(255, Color.red(stroke.color) + 70),
-                    minOf(255, Color.green(stroke.color) + 70),
-                    minOf(255, Color.blue(stroke.color) + 70),
+    private fun renderLaser(canvas: Canvas, stroke: InkStroke) {
+        val pts = stroke.points
+        val base = pts.first().width
+        val path = pathOf(pts)
+        val core = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+            color = stroke.color
+            strokeWidth = base
+        }
+        canvas.drawPath(path, Paint(core).apply {
+            alpha = 60
+            strokeWidth = base * 2.8f
+        })
+        canvas.drawPath(path, core)
+    }
+
+    /** Dry graphite: three wobbling hairlines plus dust. */
+    private fun renderPencil(canvas: Canvas, stroke: InkStroke) {
+        val pts = stroke.points
+        val base = pts.first().width
+        val color = stroke.color
+        for (s in 0 until 3) {
+            val offset = (s - 1) * base * 0.30f
+            val hair = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeCap = Paint.Cap.ROUND
+                strokeJoin = Paint.Join.ROUND
+                strokeWidth = (base * 0.34f).coerceAtLeast(0.7f)
+                this.color = Color.argb(
+                    (Color.alpha(color) * 0.55f).toInt(),
+                    Color.red(color), Color.green(color), Color.blue(color),
                 )
             }
-            canvas.drawLine(a.x, a.y, b.x, b.y, sheen)
+            val path = Path()
+            for (i in pts.indices) {
+                val p = pts[i]
+                val prev = pts[(i - 1).coerceAtLeast(0)]
+                val next = pts[(i + 1).coerceAtMost(pts.size - 1)]
+                var dx = next.x - prev.x
+                var dy = next.y - prev.y
+                val len = hypot(dx, dy).coerceAtLeast(0.0001f)
+                dx /= len
+                dy /= len
+                val wobble = (noise(p.x, p.y, s) - 0.5f) * base * 0.55f
+                val x = p.x + (-dy) * (offset + wobble)
+                val y = p.y + dx * (offset + wobble)
+                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            canvas.drawPath(path, hair)
         }
-
-        if (stroke.style.grain) drawGrain(canvas, a, b, width, stroke.color)
-    }
-
-    /** Deterministic graphite speckles so undo/redo re-renders identically. */
-    private fun drawGrain(canvas: Canvas, a: InkPoint, b: InkPoint, width: Float, color: Int) {
-        val distance = hypot(b.x - a.x, b.y - a.y)
-        val count = (distance / 2.2f).toInt().coerceIn(1, 18)
-        val grain = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        val dust = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             this.color = Color.argb(
-                (Color.alpha(color) * 0.45f).toInt(),
+                (Color.alpha(color) * 0.35f).toInt(),
                 Color.red(color), Color.green(color), Color.blue(color),
             )
         }
-        for (i in 0 until count) {
-            val t = noise(a.x, b.y, i)
-            val jitter = (noise(b.x, a.y, i + 11) - 0.5f) * width * 1.2f
-            val x = a.x + (b.x - a.x) * t + jitter
-            val y = a.y + (b.y - a.y) * t + jitter
-            canvas.drawCircle(x, y, 0.5f * density, grain)
+        for (i in 1 until pts.size) {
+            val a = pts[i - 1]
+            val b = pts[i]
+            val n = (hypot(b.x - a.x, b.y - a.y) / 2.5f).toInt().coerceIn(0, 8)
+            for (k in 0 until n) {
+                val t = noise(a.x, b.y, k + i)
+                val jx = (noise(b.x, a.y, k + i + 7) - 0.5f) * base * 1.4f
+                val jy = (noise(a.y, b.x, k + i + 13) - 0.5f) * base * 1.4f
+                canvas.drawCircle(
+                    a.x + (b.x - a.x) * t + jx,
+                    a.y + (b.y - a.y) * t + jy,
+                    0.55f * density, dust,
+                )
+            }
+        }
+    }
+
+    private fun pathOf(pts: List<InkPoint>): Path = Path().apply {
+        moveTo(pts[0].x, pts[0].y)
+        for (i in 1 until pts.size) lineTo(pts[i].x, pts[i].y)
+    }
+
+    /** Fast incremental paint while the pen is down. */
+    private fun drawTail(stroke: InkStroke) {
+        val canvas = inkCanvas ?: return
+        val pts = stroke.points
+        if (pts.size == 1) {
+            canvas.drawCircle(pts[0].x, pts[0].y, pts[0].width / 2f, fillPaintFor(stroke))
+            return
+        }
+        val a = pts[pts.size - 2]
+        val b = pts[pts.size - 1]
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = if (stroke.style.squareCap) Paint.Cap.SQUARE else Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+            strokeWidth = ((a.width + b.width) * 0.5f).coerceAtLeast(0.6f)
+            if (stroke.style.isEraser) {
+                xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+                color = Color.BLACK
+            } else {
+                color = stroke.color
+            }
+        }
+        if (stroke.style.glow) {
+            canvas.drawLine(a.x, a.y, b.x, b.y, Paint(paint).apply {
+                alpha = 60
+                strokeWidth = paint.strokeWidth * 2.4f
+            })
+        }
+        canvas.drawLine(a.x, a.y, b.x, b.y, paint)
+        if (stroke.style.inkHighlight) {
+            canvas.drawLine(a.x, a.y, b.x, b.y, Paint(paint).apply {
+                strokeWidth = paint.strokeWidth * 0.3f
+                color = Color.argb(90, 255, 255, 255)
+            })
         }
     }
 
     private fun noise(x: Float, y: Float, i: Int): Float =
         abs((sin(x * 12.9898f + y * 78.233f + i * 37.719f) * 43758.5453f) % 1f)
+
+    // ── stroke lifecycle ────────────────────────────────────────────────────
 
     private fun eraseStrokeAt(x: Float, y: Float) {
         val radius = widthFor(0.5f) * 1.6f
@@ -230,6 +346,8 @@ class AnnotationCanvasView(context: Context) : View(context) {
     private fun end() {
         val finished = active ?: return
         active = null
+        // Re-render so taper / strands / ribbon geometry are exact.
+        rebuildInk()
         if (finished.style.fades) {
             fadeHandler.postDelayed({
                 if (strokes.remove(finished)) {
