@@ -31,10 +31,10 @@ class MoreMenu(context: Context, private val listener: Listener) : LinearLayout(
 
     init {
         orientation = VERTICAL
-        setBackgroundResource(R.drawable.bg_panel)
+        setBackgroundResource(R.drawable.bg_menu)
         elevation = dp(8)
         setPadding(dp(8).toInt(), dp(10).toInt(), dp(8).toInt(), dp(10).toInt())
-        layoutParams = LayoutParams(dp(240).toInt(), WRAP_CONTENT)
+        layoutParams = LayoutParams(dp(288).toInt(), WRAP_CONTENT)
 
         row("笔身手势", R.drawable.ic_pressure) { listener.onGestureSettings() }
         separator()

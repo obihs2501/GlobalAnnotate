@@ -33,6 +33,7 @@ class EraserPanel(context: Context, private val listener: Listener) : LinearLayo
     private val strokeTab: TextView
     private val sizeSlider: TrackSlider
     private val sizeValue: TextView
+    private lateinit var hint: TextView
 
     var brush: BrushConfig = BrushConfig()
         set(value) { field = value; sync(value) }
@@ -81,9 +82,25 @@ class EraserPanel(context: Context, private val listener: Listener) : LinearLayo
             }
             layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, dp(26).toInt())
         }
-        addView(sizeSlider, LinearLayout.LayoutParams(MATCH_PARENT, dp(26).toInt()).apply {
-            topMargin = dp(6).toInt()
+        addView(sizeSlider, LinearLayout.LayoutParams(MATCH_PARENT, dp(28).toInt()).apply {
+            topMargin = dp(8).toInt()
         })
+
+        // Stroke eraser has no size, exactly like Mi Canvas: a centred hint
+        // replaces the slider (pk_eraser_stroke_hint, 31dp / 25dp margins).
+        hint = TextView(context).apply {
+            text = "笔画橡皮无需调整粗细"
+            textSize = 14f
+            includeFontPadding = false
+            gravity = Gravity.CENTER
+            setTextColor(ContextCompat.getColor(context, R.color.ga_text_hint))
+            visibility = GONE
+            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
+                topMargin = dp(31).toInt()
+                bottomMargin = dp(25).toInt()
+            }
+        }
+        addView(hint)
     }
 
     private fun sync(brush: BrushConfig) {
@@ -92,11 +109,19 @@ class EraserPanel(context: Context, private val listener: Listener) : LinearLayo
         sizeSlider.progress = ((brush.eraserSize - style.minSize) / span.toFloat()).coerceIn(0f, 1f)
         sizeValue.text = brush.eraserSize.toInt().toString()
         selectTab(brush.eraserMode)
+        val stroke = brush.eraserMode == EraserMode.STROKE
+        hint.visibility = if (stroke) VISIBLE else GONE
+        sizeSlider.visibility = if (stroke) GONE else VISIBLE
     }
 
     private fun selectTab(mode: EraserMode) {
         pixelTab.setTabSelected(mode == EraserMode.PIXEL)
         strokeTab.setTabSelected(mode == EraserMode.STROKE)
+        if (::hint.isInitialized) {
+            val stroke = mode == EraserMode.STROKE
+            hint.visibility = if (stroke) VISIBLE else GONE
+            sizeSlider.visibility = if (stroke) GONE else VISIBLE
+        }
     }
 
     private fun tab(text: String, click: () -> Unit): TextView =

@@ -14,6 +14,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import com.globalannotate.app.R
+import com.globalannotate.app.model.BrushConfig
 
 /**
  * Colour popup, structure copied from Mi Canvas
@@ -62,7 +63,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
         orientation = VERTICAL
         setBackgroundResource(R.drawable.bg_panel)
         elevation = dp(8)
-        layoutParams = LayoutParams(dp(360).toInt(), (requiredHeightDp() * density).toInt())
+        layoutParams = LayoutParams(dp(360).toInt(), WRAP_CONTENT)
 
         // Title row: 20dp top/bottom margin, straw button aligned to the end.
         val titleRow = LinearLayout(context).apply {
@@ -105,7 +106,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
         })
 
         addView(bodyText("色相").apply {
-            setPadding(dp(25).toInt(), dp(14).toInt(), 0, 0)
+            setPadding(dp(25).toInt(), dp(16).toInt(), 0, 0)
         }, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT))
 
         gridContainer = LinearLayout(context).apply { orientation = VERTICAL }
@@ -113,12 +114,12 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
             color = picked
             listener.onColor(Color.argb(opacity, Color.red(picked), Color.green(picked), Color.blue(picked)))
         }.apply {
-            layoutParams = LinearLayout.LayoutParams(dp(310).toInt(), dp(210).toInt()).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(330).toInt(), dp(230).toInt()).apply {
                 topMargin = dp(3).toInt()
             }
         }
         gridContainer.addView(grid, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
-            leftMargin = dp(25).toInt()
+            leftMargin = dp(15).toInt()
         })
         addView(gridContainer, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
 
@@ -126,7 +127,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
         val opacityRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(25).toInt(), dp(16).toInt(), dp(25).toInt(), 0)
+            setPadding(dp(20).toInt(), dp(16).toInt(), dp(20).toInt(), 0)
         }
         opacityRow.addView(bodyText("不透明度").apply {
             layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
@@ -146,43 +147,61 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
                 listener.onOpacity(opacity)
             }
         }
-        addView(opacityBar, LinearLayout.LayoutParams(MATCH_PARENT, dp(26).toInt()).apply {
-            topMargin = dp(6).toInt()
-            leftMargin = dp(25).toInt()
-            rightMargin = dp(25).toInt()
+        addView(opacityBar, LinearLayout.LayoutParams(MATCH_PARENT, dp(28).toInt()).apply {
+            topMargin = dp(8).toInt()
+            leftMargin = dp(20).toInt()
+            rightMargin = dp(20).toInt()
         })
 
         // Current colour block + quick swatches
         val bottom = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(25).toInt(), dp(16).toInt(), dp(25).toInt(), 0)
+            setPadding(dp(20).toInt(), dp(28).toInt(), dp(20).toInt(), dp(20).toInt())
         }
         chip = ColorChip(context, color).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(64).toInt(), dp(64).toInt())
+            layoutParams = LinearLayout.LayoutParams(dp(72).toInt(), dp(72).toInt())
         }
         bottom.addView(chip)
-        for (c in listOf(color, Color.WHITE, Color.BLACK)) {
-            val s = SwatchView(context, c).apply {
-                checked = c == color
-                setOnClickListener {
-                    this@ColorPanel.color = c
-                    listener.onColor(Color.argb(opacity, Color.red(c), Color.green(c), Color.blue(c)))
-                }
-                layoutParams = LinearLayout.LayoutParams(dp(32).toInt(), dp(32).toInt()).apply {
-                    marginStart = dp(12).toInt()
-                }
+
+        // Two rows of recent colours, 16dp apart (Mi Canvas recent_color_list_1/2).
+        val swatchColumn = LinearLayout(context).apply {
+            orientation = VERTICAL
+            layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
+                marginStart = dp(16).toInt()
             }
-            quickSwatches.add(s)
-            bottom.addView(s)
         }
+        val recent = BrushConfig.PALETTE.take(8)
+        for (row in 0..1) {
+            val line = LinearLayout(context).apply {
+                orientation = HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+            }
+            for (i in 0..3) {
+                val c = recent[row * 4 + i]
+                val swatch = SwatchView(context, c).apply {
+                    checked = c == color
+                    setOnClickListener {
+                        this@ColorPanel.color = c
+                        listener.onColor(Color.argb(opacity, Color.red(c), Color.green(c), Color.blue(c)))
+                    }
+                    layoutParams = LinearLayout.LayoutParams(dp(36).toInt(), dp(36).toInt()).apply {
+                        if (i > 0) marginStart = dp(12).toInt()
+                    }
+                }
+                quickSwatches.add(swatch)
+                line.addView(swatch)
+            }
+            swatchColumn.addView(line, LinearLayout.LayoutParams(WRAP_CONTENT, WRAP_CONTENT).apply {
+                if (row > 0) topMargin = dp(16).toInt()
+            })
+        }
+        bottom.addView(swatchColumn)
         addView(bottom, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
             topMargin = dp(16).toInt()
         })
     }
 
-    /** Total popup height: title + tabs + label + grid + opacity + colour row. */
-    fun requiredHeightDp(): Int = 20 + 44 + 12 + 40 + 14 + 20 + 3 + 230 + 16 + 20 + 6 + 26 + 16 + 64 + 12
 
     private fun selectTab(gridSelected: Boolean) {
         gridTab.setTabSelected(gridSelected)

@@ -28,6 +28,7 @@ class IconButton(context: Context) : View(context) {
     init {
         isClickable = true
         isFocusable = true
+        foreground = Ripple.circle(context)
         setOnClickListener { if (enabledVisual) onTap?.invoke() }
     }
 

@@ -18,6 +18,7 @@ import com.globalannotate.app.model.BrushConfig
 import com.globalannotate.app.model.PenStyle
 import com.globalannotate.app.widget.BrushGlyph
 import com.globalannotate.app.widget.IconButton
+import com.globalannotate.app.widget.Ripple
 import com.globalannotate.app.widget.SwatchView
 import kotlin.math.abs
 import kotlin.math.min
@@ -92,6 +93,7 @@ class ToolbarView(context: Context, private val listener: Listener) : LinearLayo
                 setOnClickListener {
                     listener.onStyle(style, centerOnScreen(this))
                 }
+                foreground = Ripple.rounded(context, dp(14))
                 layoutParams = LinearLayout.LayoutParams(dp(40).toInt(), dp(72).toInt())
             }
             glyphs[style] = glyph

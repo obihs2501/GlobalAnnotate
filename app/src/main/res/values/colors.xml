@@ -13,4 +13,7 @@
     <color name="ga_icon_tint">#CC000000</color>
     <color name="ga_circle_bg">#0F000000</color>
     <color name="ga_eraser_hint">#66000000</color>
+    <!-- Miuix pressed-state ripple; 12% black on light, 12% white on dark -->
+    <color name="ga_ripple">#1F000000</color>
+    <color name="ga_text_hint">#66000000</color>
 </resources>

@@ -62,15 +62,6 @@ class BrushPanel(context: Context, private val listener: Listener) : LinearLayou
         addView(scroller)
     }
 
-    /** Popup height that fits the current brush's rows exactly. */
-    fun requiredHeightDp(): Int {
-        val style = brush.style
-        var rows = 2 // size + alpha
-        if (style.showSensitivity) rows++
-        if (style.showTipSize) rows++
-        // 110 preview + per-row (label 20 + gap 14 + slider 26 + gap 4) + bottom padding
-        return 110 + rows * 64 + 16
-    }
 
     private fun rebuild(brush: BrushConfig) {
         preview.brush = brush

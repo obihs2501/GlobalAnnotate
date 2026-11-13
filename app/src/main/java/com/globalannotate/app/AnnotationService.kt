@@ -92,6 +92,9 @@ class AnnotationService : Service(),
     private var screenWidth = 0
     private var screenHeight = 0
 
+    private lateinit var scrim: View
+    private lateinit var scrimParams: WindowManager.LayoutParams
+
     private val panels: List<View>
         get() = listOf(colorPanel, brushPanel, eraserPanel, gesturePanel, moreMenu)
 
@@ -157,12 +160,22 @@ class AnnotationService : Service(),
             y = dp(24)
         }
         paletteParams = params(MATCH, MATCH, passiveFlags)
-        colorPanelParams = anchoredParams(dp(360), dp(colorPanel.requiredHeightDp()), passiveFlags)
+        colorPanelParams = anchoredParams(dp(360), dp(571), passiveFlags)
         brushPanelParams = anchoredParams(dp(288), dp(420), passiveFlags)
         eraserPanelParams = anchoredParams(dp(288), dp(200), passiveFlags)
         gesturePanelParams = anchoredParams(dp(288), dp(320), passiveFlags)
-        moreMenuParams = anchoredParams(dp(240), WRAP, passiveFlags)
+        moreMenuParams = anchoredParams(dp(288), WRAP, passiveFlags)
 
+        // Invisible full-screen catcher: any tap outside an open panel dismisses
+        // it, exactly like PopupWindow outside-touch in Mi Canvas.
+        scrim = View(this).apply {
+            setBackgroundColor(Color.TRANSPARENT)
+            isClickable = true
+            setOnClickListener { closePanels() }
+            visibility = View.GONE
+        }
+        scrimParams = params(MATCH, MATCH, passiveFlags)
+        windowManager.addView(scrim, scrimParams)
         windowManager.addView(canvas, canvasParams)
         windowManager.addView(toolbar, toolbarParams)
         windowManager.addView(palette, paletteParams)
@@ -395,11 +408,9 @@ class AnnotationService : Service(),
         }
         if (style.isEraser) {
             eraserPanel.brush = canvas.brush
-            brushPanelParams.height = dp(brushPanel.requiredHeightDp())
             showPanel(eraserPanel, anchorX, dp(288))
         } else {
             brushPanel.brush = canvas.brush
-            brushPanelParams.height = dp(brushPanel.requiredHeightDp())
             showPanel(brushPanel, anchorX, dp(288))
         }
     }
@@ -412,7 +423,6 @@ class AnnotationService : Service(),
     override fun onOpenColorPanel(anchorX: Int) {
         colorPanel.color = canvas.brush.color
         colorPanel.opacity = canvas.brush.alpha
-        colorPanelParams.height = dp(colorPanel.requiredHeightDp())
         showPanel(colorPanel, anchorX, dp(360))
     }
 
@@ -480,7 +490,6 @@ class AnnotationService : Service(),
     }
 
     override fun onExpandedChanged() {
-        gesturePanelParams.height = dp(gesturePanel.requiredHeightDp())
         gesturePanel.post {
             runCatching { windowManager.updateViewLayout(gesturePanel, gesturePanelParams) }
         }
@@ -489,7 +498,6 @@ class AnnotationService : Service(),
     // ── MoreMenu.Listener ───────────────────────────────────────────────────
     override fun onGestureSettings() {
         gesturePanel.setActions(gestureMap)
-        gesturePanelParams.height = dp(gesturePanel.requiredHeightDp())
         showPanel(gesturePanel, screenWidth / 2, dp(288))
     }
     override fun onAutoMinimize(enabled: Boolean) { autoMinimize = enabled }
@@ -517,7 +525,10 @@ class AnnotationService : Service(),
             return
         }
         val lp = paramsFor(target)
+        // Measure the real content: hand-summed paddings always clipped a row.
+        fitPanelHeight(target, lp)
         lp.x = (anchorX - widthPx / 2).coerceIn(dp(8), (screenWidth - widthPx - dp(8)).coerceAtLeast(dp(8)))
+        showScrim()
         target.alpha = 0f
         target.scaleX = PANEL_ENTER_SCALE
         target.scaleY = PANEL_ENTER_SCALE
@@ -536,7 +547,29 @@ class AnnotationService : Service(),
         else -> moreMenuParams
     }
 
+    private fun showScrim() {
+        if (!::scrim.isInitialized) return
+        scrim.visibility = View.VISIBLE
+    }
+
+    private fun hideScrim() {
+        if (!::scrim.isInitialized) return
+        scrim.visibility = View.GONE
+    }
+
+    /** Measure the panel with its real width so the window never clips content. */
+    private fun fitPanelHeight(view: View, lp: WindowManager.LayoutParams) {
+        val widthPx = if (lp.width > 0) lp.width else dp(288)
+        view.measure(
+            View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        val height = view.measuredHeight
+        if (height > 0) lp.height = height.coerceAtMost(screenHeight - dp(64))
+    }
+
     private fun closePanels() {
+        hideScrim()
         panels.forEach { view ->
             if (view.visibility != View.VISIBLE) return@forEach
             view.animate().cancel()
@@ -728,7 +761,7 @@ class AnnotationService : Service(),
         notifyModule(Actions.SET_SPLIT_MODE, false)
         penEngine?.disconnect()
         penEngine = null
-        (listOf(canvas, toolbar, palette, orb) + panels).forEach { view ->
+        (listOf(canvas, toolbar, palette, orb, scrim) + panels).forEach { view ->
             if (view.isAttachedToWindow) runCatching { windowManager.removeView(view) }
         }
         if (Session.service === this) Session.service = null

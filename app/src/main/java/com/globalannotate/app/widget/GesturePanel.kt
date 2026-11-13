@@ -30,6 +30,17 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
     private val listViews = mutableMapOf<String, LinearLayout>()
     private val expanded = mutableSetOf<String>()
 
+    /** Only the actions that make sense from the pen barrel; the rest stay
+     *  in the toolbar so the picker stays three lines tall. */
+    private val shownActions = listOf(
+        GestureAction.NONE,
+        GestureAction.TOGGLE_OVERLAY,
+        GestureAction.TOGGLE_ERASER,
+        GestureAction.CYCLE_COLOR,
+        GestureAction.UNDO,
+        GestureAction.TOGGLE_TOOLBAR,
+    )
+
     private val gestures = listOf(
         "SQUEEZE" to "轻捏笔身",
         "DOUBLE_TAP" to "双击笔身",
@@ -64,7 +75,6 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
         }
     }
 
-    fun requiredHeightDp(): Int = 18 + 28 + gestures.size * 46 + expanded.size * (GestureAction.entries.size * 36) + 16
 
     private fun addGestureRow(key: String, label: String) {
         val header = LinearLayout(context).apply {
@@ -93,7 +103,7 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
             orientation = VERTICAL
             visibility = View.GONE
         }
-        for (action in GestureAction.entries) {
+        for (action in shownActions) {
             list.addView(actionRow(key, action))
         }
         listViews[key] = list
