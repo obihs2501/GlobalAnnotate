@@ -532,6 +532,16 @@ class AnnotationService : Service(),
         target.alpha = 0f
         target.scaleX = PANEL_ENTER_SCALE
         target.scaleY = PANEL_ENTER_SCALE
+        // Keep the whole panel on screen: Mi Canvas pops up above the bar and
+        // slides up when there is not enough room above it.
+        val topLimit = dp(16)
+        val bottomLimit = dp(122)
+        val overTop = screenHeight - bottomLimit - lp.height
+        if (overTop < topLimit) {
+            lp.y = (screenHeight - lp.height - topLimit).coerceAtLeast(0)
+        } else {
+            lp.y = bottomLimit
+        }
         target.visibility = View.VISIBLE
         runCatching { windowManager.updateViewLayout(target, lp) }
         target.animate().alpha(1f).scaleX(1f).scaleY(1f)
@@ -559,6 +569,11 @@ class AnnotationService : Service(),
 
     /** Measure the panel with its real width so the window never clips content. */
     private fun fitPanelHeight(view: View, lp: WindowManager.LayoutParams) {
+        // The colour panel is a fixed-size design (571dp), like Mi Canvas.
+        if (view === colorPanel) {
+            lp.height = dp(571)
+            return
+        }
         val widthPx = if (lp.width > 0) lp.width else dp(288)
         view.measure(
             View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
