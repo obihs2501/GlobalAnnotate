@@ -301,7 +301,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
     }
 
     /** A flat colour dot with the white inner ring Mi Canvas uses for selection. */
-    private inner class RecentDot(private val swatch: Int) : View(context) {
+    private inner class RecentDot(val swatch: Int) : View(context) {
         private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
         var checked = false
             set(value) { field = value; invalidate() }
