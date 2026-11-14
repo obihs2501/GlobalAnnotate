@@ -45,6 +45,10 @@ class BrushGlyph @JvmOverloads constructor(
     /** Orb mode: centre the artwork on the disc instead of seating it at the top. */
     var centreVertically: Boolean = false
         set(value) { field = value; invalidate() }
+
+    /** Extra shrink for the orb, where the artwork must not fill the disc. */
+    var artScale: Float = 1f
+        set(value) { field = value; invalidate() }
     private val dst = RectF()
     private val tint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
 
@@ -130,7 +134,7 @@ class BrushGlyph @JvmOverloads constructor(
         label: String = "",
     ) {
         val ratio = src.width.toFloat() / src.height.toFloat()
-        val drawHeight = (artLengthDp * resources.displayMetrics.density).coerceAtMost(h)
+        val drawHeight = (artLengthDp * artScale * resources.displayMetrics.density).coerceAtMost(h)
         val drawWidth = drawHeight * ratio
         val left = (w - drawWidth) / 2f
         // The bar seats tools from the capsule floor (top = 0); the orb centres the

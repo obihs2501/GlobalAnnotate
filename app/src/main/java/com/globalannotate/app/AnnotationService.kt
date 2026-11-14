@@ -167,8 +167,12 @@ class AnnotationService : Service(),
             // from Mi Canvas' own Resources when available (was a hard-coded 73).
             artOffsetDp = 0f
             centreVertically = true
+            // The orb is 96dp. The official ball centres the brush with a clear
+            // margin, but the nib must stay legible: ~94% of the head height
+            // instead of edge-to-edge (and not so small the tip disappears).
             artLengthDp = MiCanvasUi.dimension("creation_brush_head_height_1_2")
                 .takeIf { it > 0 }?.let { it / resources.displayMetrics.density } ?: 70.8f
+            artScale = 0.94f
             val capsule = androidx.core.content.ContextCompat.getColor(
                 this@AnnotationService, R.color.penpicker_background_color,
             )
