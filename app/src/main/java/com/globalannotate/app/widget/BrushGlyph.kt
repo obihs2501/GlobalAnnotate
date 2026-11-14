@@ -47,15 +47,24 @@ class BrushGlyph @JvmOverloads constructor(
         PenStyle.ERASER -> "eraser"
     }
 
-    private fun drawableId(name: String): Int {
-        val res = resources
-        val pkg = context.packageName
-        val id = res.getIdentifier(name, "drawable", pkg)
-        return id
+    private fun drawableId(name: String): Int =
+        resources.getIdentifier(name, "drawable", context.packageName)
+
+    private fun bitmapOf(id: Int): Bitmap? {
+        if (id == 0) return null
+        return runCatching {
+            (ContextCompat.getDrawable(context, id) as? android.graphics.drawable.BitmapDrawable)?.bitmap
+        }.onFailure { android.util.Log.w("BrushGlyph", "drawable $id failed: $it") }.getOrNull()
     }
 
-    private fun bitmapOf(id: Int): Bitmap? =
-        (ContextCompat.getDrawable(context, id) as? android.graphics.drawable.BitmapDrawable)?.bitmap
+    /** Resolve the first name that exists; the night artwork is a fallback too. */
+    private fun firstBitmap(vararg names: String): Bitmap? {
+        for (name in names) {
+            val bmp = bitmapOf(drawableId(name))
+            if (bmp != null) return bmp
+        }
+        return null
+    }
 
     override fun onDraw(canvas: Canvas) {
         val w = width.toFloat()
@@ -65,18 +74,18 @@ class BrushGlyph @JvmOverloads constructor(
         val suffix = if (night) "_dark" else ""
         val name = prefix(style)
         if (style == PenStyle.ERASER) {
-            val body = bitmapOf(drawableId("pk_eraser_tool")) ?: return
+            val body = firstBitmap("pk_eraser_tool") ?: return
             fit(body, w, h, canvas, null)
             return
         }
-        val body = bitmapOf(drawableId("pk_${name}_body$suffix")) ?: return
+        val body = firstBitmap("pk_${name}_body$suffix", "pk_${name}_body") ?: return
         fit(body, w, h, canvas, null)
-        val head = bitmapOf(drawableId("pk_${name}_head$suffix"))
+        val head = firstBitmap("pk_${name}_head$suffix", "pk_${name}_head")
         if (head != null) {
             tint.colorFilter = PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)
             fit(head, w, h, canvas, tint)
         }
-        val highlight = bitmapOf(drawableId("pk_${name}_highlight$suffix"))
+        val highlight = firstBitmap("pk_${name}_highlight$suffix", "pk_${name}_highlight")
         if (highlight != null) fit(highlight, w, h, canvas, null)
     }
 
