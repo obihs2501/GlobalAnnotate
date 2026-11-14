@@ -736,7 +736,7 @@ class AnnotationService : Service(),
         val (width, height) = colorPopupSize()
         val shell = colorPanel.originalShell()
         if (shell != null) {
-            showShell(shell, width, height)
+            showShell(shell, width, height, anchorX)
             return
         }
         showPanel(colorPanel, anchorX, width, height)
@@ -756,11 +756,13 @@ class AnnotationService : Service(),
             .takeIf { it > 0 } ?: dp(360)
         val declared = MiCanvasUi.dimension("pk_color_picker_popup_height")
             .takeIf { it > 0 } ?: dp(571)
-        // The original presenter clamps against the display, not the toolbar:
-        // its arrow maths places the surface itself. Clamping to the bar's y
-        // (about 553dp here) would still crop the 571dp layout.
-        val available = screenHeight - dp(24)
-        return width to declared.coerceAtMost(available)
+        // Fit the space the popup will actually occupy: Mi Canvas' presenter
+        // clamps to the room above (or below) the bar, which is why its popup
+        // never runs off screen. Using the whole display height left the surface
+        // taller than the gap above the bar and pushed it past the bottom edge.
+        val above = toolbarParams.y - dp(12)
+        val below = screenHeight - (toolbarParams.y + dp(BAR_HEIGHT_DP)) - dp(12)
+        return width to declared.coerceAtMost(maxOf(above, below).coerceAtLeast(dp(240)))
     }
 
     /**
@@ -768,7 +770,7 @@ class AnnotationService : Service(),
      * the app's overlay. The proxy supplies the window token, so the original
      * arrow maths and the proxy share one coordinate space.
      */
-    private fun showShell(shell: MiCanvasPopupShell, width: Int, height: Int) {
+    private fun showShell(shell: MiCanvasPopupShell, width: Int, height: Int, anchorX: Int = -1) {
         val already = openShell === shell && shell.isShowing()
         if (already) {
             closePanels()
@@ -780,14 +782,16 @@ class AnnotationService : Service(),
         if (popupHost.indexOfChild(anchor) < 0) {
             popupHost.addView(anchor, FrameLayout.LayoutParams(dp(48), dp(ToolbarView.PEN_HEIGHT_DP)))
         }
-        toolbar.selectedToolBounds()?.let { tool ->
-            val lp = anchor.layoutParams as FrameLayout.LayoutParams
-            lp.width = tool.width()
-            lp.height = tool.height()
-            lp.leftMargin = tool.left
-            // popupHost starts below the status bar, while the tool rect is in
-            // screen space; without the inset the proxy sits 90px too low.
-            lp.topMargin = (tool.top - popupHostInsetTop()).coerceAtLeast(0)
+        val tool = toolbar.selectedToolBounds()
+        val lp = anchor.layoutParams as FrameLayout.LayoutParams
+        lp.width = dp(48)
+        lp.height = dp(ToolbarView.PEN_HEIGHT_DP)
+        // Point the arrow at what the user actually pressed: the swatch's centre
+        // when a colour slot opened the popup, otherwise the selected tool.
+        val centreX = if (anchorX > 0) anchorX else tool?.let { it.left + it.width() / 2 }
+        if (centreX != null) {
+            lp.leftMargin = (centreX - dp(48) / 2).coerceAtLeast(0)
+            lp.topMargin = (toolbarParams.y - popupHostInsetTop()).coerceAtLeast(0)
             anchor.layoutParams = lp
         }
         anchor.requestLayout()
