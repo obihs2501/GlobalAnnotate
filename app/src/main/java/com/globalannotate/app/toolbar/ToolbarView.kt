@@ -69,8 +69,13 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
     private var dragging = false
 
     init {
+        // The selected tool is allowed to overhang its slot.
+        clipChildren = false
+        clipToPadding = false
         row.orientation = LinearLayout.HORIZONTAL
         row.gravity = Gravity.BOTTOM
+        row.clipChildren = false
+        row.clipToPadding = false
         row.setPadding(dp(15), 0, dp(15), 0)
 
         undo = circle(R.drawable.picker_undo) { listener.onUndo() }.apply {
@@ -213,21 +218,29 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
             glyph.post { stretch(glyph, selected) }
             return
         }
-        glyph.pivotX = glyph.width / 2f
+        // The selected tool grows from its bottom-left corner: it can only
+        // stretch forward/upward, never push its neighbours around. 45x77dp
+        // scales to the measured 64x94dp large slot.
+        glyph.pivotX = 0f
         glyph.pivotY = glyph.height.toFloat()
+        val large = (glyph.layoutParams as ViewGroup.LayoutParams).width == dp(LARGE_WIDTH_DP)
+        val sx = if (large) 1f else 1.42f
+        val sy = if (large) 1f else 1.22f
         if (selected) {
+            glyph.translationZ = 3f * density
             glyph.animate()
-                .scaleY(1.09f)
-                .translationY(-3f * density)
-                .setDuration(260)
-                .setInterpolator(android.view.animation.OvershootInterpolator(0.7f))
+                .scaleX(sx)
+                .scaleY(sy)
+                .setDuration(200)
+                .setInterpolator(android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f))
                 .start()
         } else {
             glyph.animate()
+                .scaleX(1f)
                 .scaleY(1f)
-                .translationY(0f)
-                .setDuration(180)
-                .setInterpolator(android.view.animation.DecelerateInterpolator())
+                .setDuration(150)
+                .setInterpolator(android.view.animation.PathInterpolator(0.3f, 0f, 1f, 1f))
+                .withEndAction { glyph.translationZ = 0f }
                 .start()
         }
     }
