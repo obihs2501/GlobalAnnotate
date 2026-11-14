@@ -885,7 +885,11 @@ class AnnotationService : Service(),
                         popup.javaClass
                             .getMethod("IlIll1i", Int::class.javaPrimitiveType)
                             .invoke(popup, px)
-                        popup.height = px
+                        // `setHeight` is overridden by Mi Canvas to size the content;
+                        // the real PopupWindow height is behind `I111llι`.
+                        popup.javaClass
+                            .getMethod("I111ll\u03b9", Int::class.javaPrimitiveType)
+                            .invoke(popup, px)
                         popup.update()
                         Log.i(TAG, "MCPOPUP sized to $px")
                         popup.contentView?.postDelayed({
