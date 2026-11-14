@@ -50,32 +50,22 @@ object MiCanvasUi {
      * `DrawableInflater` falls back to the boot loader, so any drawable that names
      * a class (`<drawable class="miuix...">`) throws InflateException — which is
      * what stopped the colour popup from being built at all.
+     *
+     * `Resources` keeps the loader in a private field and caches the inflater that
+     * was built from it, so both have to be replaced.
      */
     private fun attachClassLoader(res: Resources, loader: ClassLoader): String {
-        val direct = runCatching {
-            Resources::class.java.getDeclaredMethod("setClassLoader", ClassLoader::class.java)
-                .apply { isAccessible = true }
-                .invoke(res, loader)
-        }.isSuccess
-        if (direct) return "Resources.setClassLoader"
-
-        val impl = runCatching {
-            Resources::class.java.getDeclaredField("mResourcesImpl")
-                .apply { isAccessible = true }
-                .get(res)
-        }.getOrNull() ?: return "none"
-
-        var cls: Class<*>? = impl.javaClass
-        while (cls != null) {
-            val field = runCatching { cls!!.getDeclaredField("mClassLoader") }.getOrNull()
-            if (field != null) {
-                field.isAccessible = true
-                field.set(impl, loader)
-                return "ResourcesImpl.mClassLoader"
+        val cls = Resources::class.java
+        val field = runCatching { cls.getDeclaredField("mClassLoader") }.getOrNull() ?: return "none"
+        runCatching {
+            field.isAccessible = true
+            field.set(res, loader)
+            runCatching {
+                cls.getDeclaredField("mDrawableInflater").apply { isAccessible = true }.set(res, null)
             }
-            cls = cls.superclass
-        }
-        return "none"
+        }.onFailure { Log.w(TAG, "attach class loader failed: $it") }
+        val attached = runCatching { cls.getMethod("getClassLoader").invoke(res) }.getOrNull()
+        return if (attached === loader) "Resources.mClassLoader" else "none"
     }
 
     /** Debug aid: find the member that actually carries the resources' class loader. */
