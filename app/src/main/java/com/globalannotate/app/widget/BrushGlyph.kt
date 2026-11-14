@@ -42,6 +42,9 @@ class BrushGlyph @JvmOverloads constructor(
     var artLengthDp: Float = 124f
         set(value) { field = value; invalidate() }
 
+    /** Orb mode: centre the artwork on the disc instead of seating it at the top. */
+    var centreVertically: Boolean = false
+        set(value) { field = value; invalidate() }
     private val dst = RectF()
     private val tint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
 
@@ -130,9 +133,12 @@ class BrushGlyph @JvmOverloads constructor(
         val drawHeight = (artLengthDp * resources.displayMetrics.density).coerceAtMost(h)
         val drawWidth = drawHeight * ratio
         val left = (w - drawWidth) / 2f
-        dst.set(left, 0f, left + drawWidth, drawHeight)
+        // The bar seats tools from the capsule floor (top = 0); the orb centres the
+        // pen on its disc. Centring was previously applied to both, which made the
+        // orb's pen float above the ball and read oversized.
+        val top = if (centreVertically) (h - drawHeight) / 2f else 0f
+        dst.set(left, top + artOffsetDp * resources.displayMetrics.density, left + drawWidth, top + drawHeight + artOffsetDp * resources.displayMetrics.density)
         if (label.isNotEmpty() && logged.add(label)) {
-            // The tip of each pen is the first opaque row of its artwork, so the
             // visible overhang differs whenever a bitmap carries transparent
             // padding at the top. Log it once to compare the tools.
             android.util.Log.i(

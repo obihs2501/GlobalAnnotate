@@ -101,6 +101,8 @@ class AnnotationService : Service(),
     private var toolbarVisible = false
     private var autoMinimize = true
     private var fingerDraw = false
+    /** Master switch for finger scroll-follow; off means the ink never pans. */
+    private var fingerScrollEnabled = true
     /** True while the colour editor was opened from the fourth (custom) slot. */
     private var editingCustomColor = false
     /** The fourth swatch: the colour Mi Canvas keeps there. 0 = rainbow disc. */
@@ -164,6 +166,7 @@ class AnnotationService : Service(),
             // Tablet resource `creation_brush_head_height_1_2 = 70.8dp`, read
             // from Mi Canvas' own Resources when available (was a hard-coded 73).
             artOffsetDp = 0f
+            centreVertically = true
             artLengthDp = MiCanvasUi.dimension("creation_brush_head_height_1_2")
                 .takeIf { it > 0 }?.let { it / resources.displayMetrics.density } ?: 70.8f
             val capsule = androidx.core.content.ContextCompat.getColor(
@@ -355,6 +358,9 @@ class AnnotationService : Service(),
         // The finger is painting on the canvas itself now, so the spy's
         // scroll-follow would fight the stroke it is producing.
         if (fingerDraw) return
+        // A finger interacting with any open panel (e.g. scrolling the gesture
+        // dropdown) must never pan the ink layer underneath it.
+        if (openPanel != null || openShell != null) return
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 fingerPointerDown = true
@@ -376,7 +382,7 @@ class AnnotationService : Service(),
                 lastFingerY = event.y
                 if (abs(dy) < 0.01f) return
                 if (!fingerScrolling && abs(dy) > 2.5f * density) fingerScrolling = true
-                if (fingerScrolling && active && event.pointerCount == 1) {
+                if (fingerScrollEnabled && fingerScrolling && active && event.pointerCount == 1) {
                     canvas.scrollBy(-dy)
                 }
             }
@@ -655,10 +661,18 @@ class AnnotationService : Service(),
         }
     }
 
+    /** Three fixed swatches: switch the pen colour, never touch the fourth slot. */
     override fun onColor(color: Int) {
-        // A colour chosen while the fourth slot's editor is open replaces that
-        // slot, even when it happens to equal one of the three presets.
-        if (editingCustomColor || BrushConfig.QUICK_COLORS.none { it == color }) {
+        editingCustomColor = false
+        canvas.brush = canvas.brush.copy(color = color)
+        colorPanel.color = color
+        brushPanel.updateColor(color)
+        refreshToolbar()
+    }
+
+    /** A colour picked in the editor; replaces the fourth slot when opened from it. */
+    override fun onEditorColor(color: Int) {
+        if (editingCustomColor) {
             customColor = color
             prefs.edit().putInt(KEY_CUSTOM, customColor).apply()
         }
@@ -681,7 +695,7 @@ class AnnotationService : Service(),
 
     override fun onOpenMore(anchorX: Int) {
         Log.i(TAG, "more tap at $anchorX")
-        moreMenu.setChecks(autoMinimize, fingerDraw)
+        moreMenu.setChecks(autoMinimize, fingerDraw, fingerScrollEnabled)
         moreMenu.setLongShotEnabled(helper != null)
         showPanel(moreMenu, anchorX, dp(200), 0)
     }
@@ -978,6 +992,12 @@ class AnnotationService : Service(),
     override fun onClear() { canvas.clear(); closePanels() }
     override fun onAutoMinimize(enabled: Boolean) { autoMinimize = enabled }
     override fun onFingerDraw(enabled: Boolean) { fingerDraw = enabled; applyInputMode() }
+    override fun onFingerScroll(enabled: Boolean) {
+        fingerScrollEnabled = enabled
+        prefs.edit().putBoolean(KEY_FINGER_SCROLL, enabled).apply()
+        // A disabled scroll-follow must not leave a half-applied offset behind.
+        if (!enabled) { fingerScrolling = false; canvas.pruneOffscreen() }
+    }
     override fun onQuit() { closePanels(); stopSelf() }
 
     // ── remote actions ─────────────────────────────────────────────────────
@@ -1281,6 +1301,7 @@ class AnnotationService : Service(),
             eraserSize = num(KEY_ERASER_SIZE)?.toFloat() ?: PenStyle.ERASER.defaultSize.toFloat(),
         )
         customColor = num(KEY_CUSTOM)?.toInt() ?: 0
+        fingerScrollEnabled = p.getBoolean(KEY_FINGER_SCROLL, true)
     }
 
     private fun saveGestures() {
@@ -1389,6 +1410,7 @@ class AnnotationService : Service(),
         private const val KEY_ERASER_MODE = "eraser_mode"
         private const val KEY_ERASER_SIZE = "eraser_size"
         private const val KEY_CUSTOM = "custom_color"
+        private const val KEY_FINGER_SCROLL = "finger_scroll"
 
         var isRunning: Boolean = false
             private set

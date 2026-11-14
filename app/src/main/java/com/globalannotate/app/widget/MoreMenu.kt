@@ -24,6 +24,8 @@ class MoreMenu(context: Context, private val listener: Listener) : LinearLayout(
         fun onClear()
         fun onAutoMinimize(enabled: Boolean)
         fun onFingerDraw(enabled: Boolean)
+        /** Disable finger scroll-follow (palm rejection for the ink layer). */
+        fun onFingerScroll(enabled: Boolean)
         fun onQuit()
     }
 
@@ -45,6 +47,7 @@ class MoreMenu(context: Context, private val listener: Listener) : LinearLayout(
 
         check("自动最小化", true) { listener.onAutoMinimize(it) }
         check("用手指涂画", false) { listener.onFingerDraw(it) }
+        check("手指滑动跟随", true) { listener.onFingerScroll(it) }
     }
 
     private fun item(text: String, icon: Int, click: () -> Unit) {
@@ -76,14 +79,16 @@ class MoreMenu(context: Context, private val listener: Listener) : LinearLayout(
         checkedList.addView(row)
     }
 
-    /** Reflect the service state when the menu is shown. */
-    fun setChecks(autoMinimize: Boolean, fingerDraw: Boolean) {
-        (checkedList.getChildAt(0)
+    fun setChecks(autoMinimize: Boolean, fingerDraw: Boolean, fingerScroll: Boolean) {
+        set(0, autoMinimize)
+        set(1, fingerDraw)
+        set(2, fingerScroll)
+    }
+
+    private fun set(index: Int, enabled: Boolean) {
+        (checkedList.getChildAt(index)
             ?.findViewById<ImageView>(R.id.more_action_checked_item_icon))?.visibility =
-            if (autoMinimize) View.VISIBLE else View.INVISIBLE
-        (checkedList.getChildAt(1)
-            ?.findViewById<ImageView>(R.id.more_action_checked_item_icon))?.visibility =
-            if (fingerDraw) View.VISIBLE else View.INVISIBLE
+            if (enabled) View.VISIBLE else View.INVISIBLE
     }
 
     fun setLongShotEnabled(enabled: Boolean) {

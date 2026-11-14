@@ -34,7 +34,7 @@ import java.lang.reflect.Proxy
 class ColorPanel(context: Context, private val listener: Listener) : LinearLayout(context) {
 
     interface Listener {
-        fun onColor(color: Int)
+        fun onEditorColor(color: Int)
         fun onAlpha(alpha: Int)
         fun onPipette()
     }
@@ -287,7 +287,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
                 try {
                     color = c or 0xFF000000.toInt()
                     syncViews(fromGrid = true)
-                    listener.onColor(color)
+                    listener.onEditorColor(color)
                 } finally {
                     remoteEcho = false
                 }
@@ -402,7 +402,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
         try {
             color = argb or 0xFF000000.toInt()
             alpha = a
-            listener.onColor(color)
+            listener.onEditorColor(color)
             listener.onAlpha(a)
             recent.forEach { it.checked = sameRgb(it.color, color) }
             shellDots.forEach { it.checked = sameRgb(it.swatch, color) }
@@ -534,7 +534,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
         color = Color.HSVToColor(hsv) or 0xFF000000.toInt()
         holdingHsv = false
         syncViews(fromGrid = false)
-        listener.onColor(color)
+        listener.onEditorColor(color)
     }
 
     private fun applyColor(c: Int) {
@@ -542,7 +542,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
         // A colour from the board/recent swatches is an external change, so the
         // three rails must be re-seated from it.
         syncViews(fromGrid = true)
-        listener.onColor(color)
+        listener.onEditorColor(color)
     }
 
     /**
