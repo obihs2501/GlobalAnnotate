@@ -100,30 +100,61 @@ class BrushGlyph @JvmOverloads constructor(
                     PorterDuff.Mode.SRC_IN,
                 )
             }
-            fit(body, w, h, canvas, eraserPaint)
+            fit(body, w, h, canvas, eraserPaint, "eraser_body")
             canvas.restore()
             return
         }
         canvas.save()
         canvas.translate(0f, artOffsetDp * resources.displayMetrics.density)
         val body = firstBitmap("pk_${name}_body$suffix", "pk_${name}_body") ?: return
-        fit(body, w, h, canvas, null)
+        fit(body, w, h, canvas, null, "${name}_body")
         val head = firstBitmap("pk_${name}_head$suffix", "pk_${name}_head")
         if (head != null) {
             tint.colorFilter = PorterDuffColorFilter(color, PorterDuff.Mode.SRC_IN)
-            fit(head, w, h, canvas, tint)
+            fit(head, w, h, canvas, tint, "${name}_head")
         }
         val highlight = firstBitmap("pk_${name}_highlight$suffix", "pk_${name}_highlight")
-        if (highlight != null) fit(highlight, w, h, canvas, null)
+        if (highlight != null) fit(highlight, w, h, canvas, null, "${name}_highlight")
         canvas.restore()
     }
 
-    private fun fit(src: Bitmap, w: Float, h: Float, canvas: Canvas, paint: android.graphics.Paint?) {
+    private fun fit(
+        src: Bitmap,
+        w: Float,
+        h: Float,
+        canvas: Canvas,
+        paint: android.graphics.Paint?,
+        label: String = "",
+    ) {
         val ratio = src.width.toFloat() / src.height.toFloat()
         val drawHeight = (artLengthDp * resources.displayMetrics.density).coerceAtMost(h)
         val drawWidth = drawHeight * ratio
         val left = (w - drawWidth) / 2f
         dst.set(left, 0f, left + drawWidth, drawHeight)
+        if (label.isNotEmpty() && logged.add(label)) {
+            // The tip of each pen is the first opaque row of its artwork, so the
+            // visible overhang differs whenever a bitmap carries transparent
+            // padding at the top. Log it once to compare the tools.
+            android.util.Log.i(
+                "BrushGlyph",
+                "$label src=${src.width}x${src.height} dst=$dst " +
+                    "opaqueTop=${opaqueTopFraction(src)} view=${w}x$h offset=$artOffsetDp",
+            )
+        }
         canvas.drawBitmap(src, null, dst, paint)
+    }
+
+    private val logged = HashSet<String>()
+
+    /** First row that is not fully transparent, as a fraction of the height. */
+    private fun opaqueTopFraction(src: Bitmap): Float {
+        val pixels = IntArray(src.width)
+        for (y in 0 until src.height) {
+            src.getPixels(pixels, 0, src.width, 0, y, src.width, 1)
+            for (p in pixels) {
+                if ((p ushr 24) != 0) return y.toFloat() / src.height
+            }
+        }
+        return 0f
     }
 }
