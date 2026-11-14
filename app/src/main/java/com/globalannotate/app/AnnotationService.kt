@@ -756,14 +756,7 @@ class AnnotationService : Service(),
         updateExclusion()
     }
 
-    /**
-     * Tell the helper which screen rects must keep their normal input routing.
-     *
-     * The helper's gesture-monitor surface lives in the display's natural frame,
-     * so the rects must be rotated into it — for every rotation, not only 90°,
-     * or the toolbar swallows the pen in the other orientations. The bounds are
-     * re-read here because they change with the rotation.
-     */
+    /** Tell the helper which screen rects must keep their normal input routing. */
     /**
      * The rects are built from a view's laid-out size, so a bar or panel that was
      * just made visible still reports width 0 for the rest of this frame. Without
@@ -787,24 +780,13 @@ class AnnotationService : Service(),
         add(toolbar, toolbarVisible)
         add(orb, active)
         openPanel?.let { add(it, true) }
-        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        val bounds = wm.maximumWindowMetrics.bounds
-        val w = bounds.width()
-        val h = bounds.height()
-        val rotation = wm.defaultDisplay?.rotation ?: android.view.Surface.ROTATION_0
-        val natural = rects.map { r ->
-            when (rotation) {
-                android.view.Surface.ROTATION_90 ->
-                    Rect(h - r.bottom, r.left, h - r.top, r.right)
-                android.view.Surface.ROTATION_180 ->
-                    Rect(w - r.right, h - r.bottom, w - r.left, h - r.top)
-                android.view.Surface.ROTATION_270 ->
-                    Rect(r.top, w - r.right, r.bottom, w - r.left)
-                else -> r
-            }
-        }
-        Log.i(TAG, "exclusion rot=$rotation screen=${w}x$h rects=$natural")
-        client.setExcludedRegion(natural)
+        // The helper's excluded region is in the display's *current* space, the
+        // same space getLocationOnScreen() reports: a rotation mapping here sent
+        // the toolbar rect somewhere else and the pen kept painting on it. Measured
+        // on the tablet at ROTATION_90 (landscape) with a pen tap inside the
+        // mapped rect: not intercepted, while the real toolbar rect still was.
+        Log.i(TAG, "exclusion rects=$rects")
+        client.setExcludedRegion(rects)
     }
 
     // ── panel listeners ────────────────────────────────────────────────────
