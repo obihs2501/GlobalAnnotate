@@ -867,6 +867,11 @@ class AnnotationService : Service(),
                     "com.xiaomi.penpicker.popup.SelectAlphaView",
                 )) com.globalannotate.app.mc.MiCanvasUi.dumpMethods(name)
             }
+            // Feasibility probe: can Mi Canvas' own colour popup be built here?
+            "com.globalannotate.action.MCPOPUP" -> {
+                val popup = com.globalannotate.app.mc.MiCanvasUi.createColorPopup()
+                Log.i(TAG, "MCPOPUP built=$popup content=${popup?.contentView}")
+            }
         }
     }
 

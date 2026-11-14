@@ -80,6 +80,25 @@ object MiCanvasUi {
 
     val context: Context? get() = host?.context
 
+    /**
+     * Mi Canvas' own colour-picker popup. Its class name keeps the Greek iotas
+     * that jadx hides behind `p249l1lII1Il.I11IIil`: the dex really calls it
+     * `l1lII1ιιιιIl.I11IιIil`. Constructing it gives the real tab (`miuix
+     * FilterSortView`), the real colour board, both rail pages and the recent
+     * colour row — everything but the presenter that feeds it.
+     */
+    fun createColorPopup(): android.widget.PopupWindow? {
+        val h = host ?: return null
+        return runCatching {
+            val cls = Class.forName(COLOR_POPUP_CLASS, true, h.loader)
+            val ctor = cls.getConstructor(Context::class.java)
+            ctor.newInstance(h.context) as android.widget.PopupWindow
+        }.onFailure { Log.e(TAG, "colour popup failed", it) }.getOrNull()
+    }
+
+    /** `l1lII1` + 4x U+03B9 + `Il.I11I` + U+03B9 + `Iil`. */
+    private const val COLOR_POPUP_CLASS = "l1lII1\u03b9\u03b9\u03b9\u03b9Il.I11I\u03b9Iil"
+
     fun id(name: String): Int = host?.resources?.getIdentifier(name, "id", PKG) ?: 0
 
     fun layoutId(name: String): Int = host?.resources?.getIdentifier(name, "layout", PKG) ?: 0
