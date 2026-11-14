@@ -867,32 +867,16 @@ class AnnotationService : Service(),
                     "com.xiaomi.penpicker.popup.SelectAlphaView",
                 )) com.globalannotate.app.mc.MiCanvasUi.dumpMethods(name)
             }
-            // Probe: open the colour panel the same way a tap on the bar does.
-            "com.globalannotate.action.MCPOPUP" -> {
+            // Debug aid: open the colour panel from adb, e.g. while checking the
+            // transplanted Mi Canvas popup without hunting for the bar's button.
+            "com.globalannotate.action.OPENCOLOR" -> {
                 if (!active) setActive(true)
-                // Skip the enter animation and the capture exclusion so the
-                // screenshot shows the panel exactly as Mi Canvas draws it.
-                colorPanel.alpha = 1f
-                colorPanel.color = canvas.brush.color
-                colorPanel.setAlphaValue(canvas.brush.alpha)
-                colorPanel.layoutParams = FrameLayout.LayoutParams(dp(338), dp(536)).apply {
-                    leftMargin = dp(40)
-                    topMargin = dp(60)
-                }
-                colorPanel.visibility = View.VISIBLE
-                popupHost.visibility = View.VISIBLE
-                colorPanel.postDelayed({ dumpTree(colorPanel, "MCPOPUP") }, 400)
+                expandBar()
+                showColorPanel(dp(300))
             }
         }
     }
 
-    private fun dumpTree(view: View, tag: String, depth: Int = 0) {
-        Log.i(TAG, "$tag ${"  ".repeat(depth)}${view.javaClass.name} ${view.width}x${view.height} vis=${view.visibility}")
-        if (depth >= 5) return
-        if (view is android.view.ViewGroup) {
-            for (i in 0 until view.childCount) dumpTree(view.getChildAt(i), tag, depth + 1)
-        }
-    }
 
     private fun refreshToolbar() {
         toolbar.update(canvas.brush, canvas.canUndo(), canvas.canRedo())

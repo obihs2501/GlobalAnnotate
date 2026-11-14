@@ -68,36 +68,6 @@ object MiCanvasUi {
         return if (attached === loader) "Resources.mClassLoader" else "none"
     }
 
-    /** Debug aid: find the member that actually carries the resources' class loader. */
-    private fun dumpClassLoaderHooks(res: Resources) {
-        var cls: Class<*>? = res.javaClass
-        while (cls != null && cls != Any::class.java) {
-            Log.i(TAG, "res ${cls.name}")
-            for (f in cls.declaredFields) Log.i(TAG, "  field ${f.name}: ${f.type.name}")
-            for (m in cls.declaredMethods) {
-                if (m.name.contains("lass", true)) {
-                    Log.i(TAG, "  method ${m.name}(${m.parameterTypes.joinToString { it.simpleName }})")
-                }
-            }
-            cls = cls.superclass
-        }
-        val impl = runCatching {
-            Resources::class.java.getDeclaredField("mResourcesImpl")
-                .apply { isAccessible = true }
-                .get(res)
-        }.getOrNull()
-        Log.i(TAG, "impl=$impl")
-        var c: Class<*>? = impl?.javaClass
-        while (c != null && c != Any::class.java) {
-            Log.i(TAG, "impl ${c.name}")
-            for (f in c.declaredFields) Log.i(TAG, "  field ${f.name}: ${f.type.name}")
-            for (m in c.declaredMethods) {
-                if (m.name.contains("lass", true)) Log.i(TAG, "  method ${m.name}")
-            }
-            c = c.superclass
-        }
-    }
-
     private fun build(): Host {
         val ctx = appContext ?: error("no app context")
         val info = ctx.packageManager.getApplicationInfo(PKG, PackageManager.GET_META_DATA)
@@ -110,7 +80,7 @@ object MiCanvasUi {
         // fell back to the boot loader and the popup failed to inflate.
         val attached = attachClassLoader(base.resources, loader)
         Log.i(TAG, "resources class loader: $attached")
-        if (attached == "none") dumpClassLoaderHooks(base.resources)
+        if (attached == "none") Log.w(TAG, "resources have no class loader; miuix drawables will fail")
         // Views resolve their resources through this wrapper; its class loader
         // must be the one that sees Mi Canvas' dex.
         val wrapped = object : ContextWrapper(base) {
