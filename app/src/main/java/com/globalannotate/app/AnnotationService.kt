@@ -1039,6 +1039,11 @@ class AnnotationService : Service(),
             }
             Actions.SET_SPLIT_MODE -> Unit
             // Switchable ink-latency instrumentation (off by default).
+            // Debug aid: keep overlays in screencap for on-device UI verification.
+            "com.globalannotate.action.SCREENSHOT" -> {
+                screenshotExclude = intent.getBooleanExtra("exclude", true)
+                Log.i(TAG, "screenshot exclusion=$screenshotExclude")
+            }
             "com.globalannotate.action.LATENCY" -> {
                 InkTiming.enabled = intent.getBooleanExtra("enabled", InkTiming.enabled)
                 if (intent.getBooleanExtra("reset", false)) InkTiming.reset()
@@ -1132,6 +1137,9 @@ class AnnotationService : Service(),
      * sampling the UI instead of the page).
      */
     private fun excludeFromCapture(view: View, retries: Int = 12) {
+        // Debug: with screenshotExclude=false adb screencap shows the overlay,
+        // which is the only way to verify the transplanted UI by eye.
+        if (!screenshotExclude) return
         if (Hidden.setSkipScreenshot(view, true)) return
         if (retries <= 0) {
             Log.w(TAG, "skip-screenshot never applied: ${view.javaClass.simpleName}")
@@ -1434,6 +1442,8 @@ class AnnotationService : Service(),
         private const val KEY_CUSTOM = "custom_color"
         private const val KEY_FINGER_SCROLL = "finger_scroll"
         private const val KEY_TOUCH_PASSTHROUGH = "touch_passthrough"
+        /** Debug flag: false keeps overlays inside screenshots so adb can verify UI. */
+        private var screenshotExclude = true
 
         var isRunning: Boolean = false
             private set
