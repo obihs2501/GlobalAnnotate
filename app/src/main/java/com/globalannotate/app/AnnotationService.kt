@@ -785,7 +785,6 @@ class AnnotationService : Service(),
         // the toolbar rect somewhere else and the pen kept painting on it. Measured
         // on the tablet at ROTATION_90 (landscape) with a pen tap inside the
         // mapped rect: not intercepted, while the real toolbar rect still was.
-        Log.i(TAG, "exclusion rects=$rects")
         client.setExcludedRegion(rects)
     }
 

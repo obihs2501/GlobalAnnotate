@@ -165,7 +165,6 @@ object HelperMain {
         handle.setTrustedOverlay(t, surface, true)
         setInputWindowInfo.invoke(t, surface, handle)
         t.apply()
-        log("stylus region=${region.bounds} excluded=${excluded.bounds} intercept=$intercept")
     }
 
     private val setInputWindowInfo by lazy {
