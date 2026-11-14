@@ -698,74 +698,52 @@ class AnnotationService : Service(),
     }
 
     /**
-     * Mi Canvas' own popup, hosted whole: the arrow root fills this overlay and the
-     * anchor is a transparent tool-shaped view inside that same window, so the
-     * original direction/offset code sees a single coordinate space.
+     * Mi Canvas' own popup window, with a transparent tool-shaped anchor proxy in
+     * the app's overlay. The proxy supplies the window token, so the original
+     * arrow maths and the proxy share one coordinate space.
      */
     private fun showShell(shell: MiCanvasPopupShell) {
-        val already = openShell === shell && popupHost.visibility == View.VISIBLE
+        val already = openShell === shell && shell.isShowing()
+        if (already) {
+            closePanels()
+            return
+        }
         closePanels(animate = false)
-        if (already) return
         panelEpoch++
-        val epoch = panelEpoch
         val anchor = shellAnchor ?: View(this).also { shellAnchor = it }
         if (popupHost.indexOfChild(anchor) < 0) {
             popupHost.addView(anchor, FrameLayout.LayoutParams(dp(48), dp(ToolbarView.PEN_HEIGHT_DP)))
         }
-        // Both windows are the same overlay type with TOP|START gravity, so the
-        // toolbar window's own origin maps its screen rect into this window. The
-        // arrow's onLayout dereferences its anchor, so bind it before the host
-        // becomes visible and lays out — otherwise the first traversal crashes.
-        val toolLoc = IntArray(2)
-        val toolWin = IntArray(2)
-        toolbar.getLocationOnScreen(toolLoc)
-        toolbar.getLocationInWindow(toolWin)
-        val lp = anchor.layoutParams as FrameLayout.LayoutParams
         toolbar.selectedToolBounds()?.let { tool ->
+            val lp = anchor.layoutParams as FrameLayout.LayoutParams
             lp.width = tool.width()
             lp.height = tool.height()
-            lp.leftMargin = tool.left - (toolLoc[0] - toolWin[0])
-            lp.topMargin = tool.top - (toolLoc[1] - toolWin[1])
+            lp.leftMargin = tool.left
+            lp.topMargin = tool.top
             anchor.layoutParams = lp
         }
-        shell.prepare(anchor, dp(360), dp(470))
-        if (popupHost.indexOfChild(shell.root) < 0) {
-            popupHost.addView(shell.root, FrameLayout.LayoutParams(MATCH, MATCH))
-        }
-        // Mi Canvas lifts popups with a 150-blur MiShadow; elevation is the closest
-        // the platform lets an overlay window draw, the same choice the panels use.
-        shell.root.elevation = dp(20).toFloat()
-        shell.root.alpha = 0f
+        anchor.requestLayout()
         openShell = shell
         popupHost.visibility = View.VISIBLE
         popupHost.invalidate()
         excludeFromCapture(popupHost)
-        updateExclusionAfterLayout()
-        // Once the host is mapped, re-anchor against this window's real origin and
-        // start the original enter animation.
-        popupHost.post {
-            if (epoch != panelEpoch || openShell !== shell) return@post
-            val host = IntArray(2)
-            popupHost.getLocationOnScreen(host)
-            val params = anchor.layoutParams as FrameLayout.LayoutParams
-            toolbar.selectedToolBounds()?.let { tool ->
-                params.width = tool.width()
-                params.height = tool.height()
-                params.leftMargin = tool.left - host[0]
-                params.topMargin = tool.top - host[1]
-                anchor.layoutParams = params
-                anchor.requestLayout()
-            }
-            shell.prepare(anchor, dp(360), dp(470))
-            // prepare() clears the animation state, so hide the root again until
-            // the original enter takes over.
-            shell.root.alpha = 0f
-            popupHost.post {
-                if (epoch != panelEpoch || openShell !== shell) return@post
-                shell.enter()
+        // The original window animates and dismisses itself; this only keeps the
+        // app's own state (exclusion, which popup is open) in step.
+        shell.popup.setOnDismissListener {
+            if (openShell === shell) {
+                openShell = null
+                popupHost.visibility = View.GONE
                 updateExclusion()
             }
         }
+        // Mi Canvas' dimens: 360dp wide, height clamped to
+        // `creation_color_picker_popup_height` (470dp) even though the layout
+        // declares 571dp.
+        if (!shell.show(anchor, dp(360), dp(470))) {
+            openShell = null
+            popupHost.visibility = View.GONE
+        }
+        updateExclusionAfterLayout()
         updateExclusion()
     }
 
@@ -824,21 +802,11 @@ class AnnotationService : Service(),
         val shell = openShell
         if (shell != null) {
             openShell = null
-            val epoch = ++panelEpoch
-            if (animate) {
-                // Original exit: scale 1.0 -> 0.6 and alpha -> 0 (150ms when
-                // animations are enabled).
-                shell.exit()
-                popupHost.postDelayed({
-                    if (epoch == panelEpoch) {
-                        shell.root.alpha = 0f
-                        popupHost.visibility = View.GONE
-                    }
-                }, 170)
-            } else {
-                shell.root.alpha = 0f
-                popupHost.visibility = View.GONE
-            }
+            // Outside taps are already handled by the window's own interceptor,
+            // which plays the original exit animation; a programmatic close (tool
+            // change, finger elsewhere) just takes it down.
+            shell.dismiss()
+            popupHost.visibility = View.GONE
             updateExclusion()
             return
         }

@@ -16,10 +16,10 @@ import android.widget.PopupWindow
  * exit animations — lives *outside* the view the app used to detach, which is
  * why hosting that inner content could never reproduce the original placement.
  *
- * The arrow root is hosted in the app's own full-display overlay together with an
- * anchor proxy, so the original `getLocationInWindow()` auto-direction code sees
- * the anchor and the root in the same window, exactly as it does inside Mi
- * Canvas' own activity window.
+ * The popup is therefore shown as the original window, with a transparent
+ * tool-shaped anchor proxy in the app's overlay. Both the proxy and the popup
+ * token come from the same overlay window, so the original
+ * `getLocationInWindow()` maths stays consistent.
  */
 class MiCanvasPopupShell private constructor(
     val popup: PopupWindow,
@@ -31,34 +31,22 @@ class MiCanvasPopupShell private constructor(
 ) {
 
     /**
-     * Size the inner content the way the original presenter does (`setWidth` /
-     * `setHeight` end up writing the content's layout params) and clear anything a
-     * previous host left on the root. Does not touch alpha: the caller keeps the
-     * root transparent until [enter] runs.
+     * Size the inner content the way Mi Canvas' presenter does — its window
+     * class overrides `setWidth`/`setHeight` so both write the content's layout
+     * params — then let the original window place and animate itself.
      */
-    fun prepare(anchor: View, width: Int, height: Int, offsetX: Int = 0, offsetY: Int = 0) {
-        invoke("setAnchor", View::class.java, anchor)
-        invoke("setAutoDismiss", Boolean::class.javaPrimitiveType, false)
-        invoke(NAME_SET_OFFSET, Integer.TYPE, offsetX, Integer.TYPE, offsetY)
-        // -1: let the original code choose the arrow direction from the anchor.
-        invoke("setForcedArrowMode", Integer.TYPE, -1)
-        content.layoutParams = content.layoutParams.apply {
-            this.width = width
-            this.height = height
-        }
-        root.animate().cancel()
-        root.clearAnimation()
-        root.scaleX = 1f
-        root.scaleY = 1f
-        root.alpha = 1f
-        root.requestLayout()
+    fun show(anchor: View, width: Int, height: Int): Boolean = runCatching {
+        popup.width = width
+        popup.height = height
+        popup.showAsDropDown(anchor, 0, 0)
+        true
+    }.onFailure { Log.w(TAG, "original popup did not show", it) }.getOrDefault(false)
+
+    fun dismiss() {
+        runCatching { popup.dismiss() }
     }
 
-    /** Original enter animation; it installs its own pre-draw listener. */
-    fun enter(): Boolean = invoke(NAME_ENTER)
-
-    /** Original exit animation; the host hides the popup when it has played out. */
-    fun exit(): Boolean = invoke(NAME_EXIT)
+    fun isShowing(): Boolean = runCatching { popup.isShowing() }.getOrDefault(false)
 
     /** Visible surface in screen coordinates — what the helper must exclude. */
     fun bounds(): Rect {
@@ -67,36 +55,8 @@ class MiCanvasPopupShell private constructor(
         return Rect(pos[0], pos[1], pos[0] + surface.width, pos[1] + surface.height)
     }
 
-    private fun invoke(name: String, vararg args: Any?): Boolean {
-        var type: Class<*>? = root.javaClass
-        while (type != null) {
-            val method = type.declaredMethods.firstOrNull {
-                it.name == name && it.parameterTypes.size == args.size
-            }
-            if (method != null) {
-                return runCatching {
-                    method.isAccessible = true
-                    method.invoke(root, *args)
-                    true
-                }.onFailure { Log.w(TAG, "original $name failed", it) }.getOrDefault(false)
-            }
-            type = type.superclass
-        }
-        Log.w(TAG, "original method $name not found")
-        return false
-    }
-
     companion object {
         private const val TAG = "GA.McPopup"
-
-        /** `ArrowPopupView.m16927lI1l()`, runtime `lIιι1ιlι`. */
-        private const val NAME_ENTER = "lI\u03b9\u03b91\u03b9l\u03b9"
-
-        /** `ArrowPopupView.m16919IllI1I()`, runtime `IlιιlI1I`. */
-        private const val NAME_EXIT = "Il\u03b9\u03b9lI1I"
-
-        /** `ArrowPopupView.m16915IIiill11i1ii(int,int)`, runtime `IIiill1ι1i1ii`. */
-        private const val NAME_SET_OFFSET = "IIiill1\u03b91i1ii"
 
         /**
          * Walks the popup's class hierarchy for the field that really holds the
@@ -119,9 +79,11 @@ class MiCanvasPopupShell private constructor(
             val arrow = checkNotNull(root)
             val content = checkNotNull(popup.contentView)
             val surface = checkNotNull(arrow.findViewById<View>(MiCanvasUi.id("content_wrapper")))
-            // The arrow only gets a parent once the original PopupWindow is shown;
-            // the app hosts it directly, so drop any stale attachment.
-            (arrow.parent as? ViewGroup)?.removeView(arrow)
+            Log.i(
+                TAG,
+                "arrow ${arrow.javaClass.name} methods=" +
+                    arrow.javaClass.declaredMethods.take(8).joinToString { it.name },
+            )
             MiCanvasPopupShell(popup, arrow, content, surface)
         }.onFailure { Log.w(TAG, "arrow subtree unavailable", it) }.getOrNull()
     }
