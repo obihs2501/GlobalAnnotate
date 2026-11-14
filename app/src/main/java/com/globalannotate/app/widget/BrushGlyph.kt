@@ -75,7 +75,17 @@ class BrushGlyph @JvmOverloads constructor(
         val name = prefix(style)
         if (style == PenStyle.ERASER) {
             val body = firstBitmap("pk_eraser_tool") ?: return
-            fit(body, w, h, canvas, null)
+            // The eraser artwork is a white luminance mask; tint it so it has a
+            // body on a white capsule, exactly like the original's rubber look.
+            val eraserPaint = android.graphics.Paint(
+                android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG,
+            ).apply {
+                colorFilter = PorterDuffColorFilter(
+                    if (night) Color.parseColor("#8E8E8E") else Color.parseColor("#D9D9D9"),
+                    PorterDuff.Mode.SRC_IN,
+                )
+            }
+            fit(body, w, h, canvas, eraserPaint)
             return
         }
         val body = firstBitmap("pk_${name}_body$suffix", "pk_${name}_body") ?: return

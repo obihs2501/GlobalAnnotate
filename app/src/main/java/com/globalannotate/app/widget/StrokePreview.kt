@@ -44,7 +44,7 @@ class StrokePreview @JvmOverloads constructor(
         )
         val padX = width * 0.08f
         val span = width - padX * 2
-        val amp = height * 0.22f
+        val amp = height * 0.26f
         val n = 96
         val base = if (b.style.isEraser) {
             b.style.toPixels(b.eraserSize, density)
@@ -59,12 +59,12 @@ class StrokePreview @JvmOverloads constructor(
             val x = padX + span * t
             val y = height / 2f - amp * sin((t * 1.6f) * Math.PI.toFloat() - 0.75f)
             val w = when (b.style) {
-                com.globalannotate.app.model.PenStyle.BALLPOINT -> base * 0.9f
+                com.globalannotate.app.model.PenStyle.BALLPOINT -> base * 1.05f
                 com.globalannotate.app.model.PenStyle.INK_PEN ->
-                    base * (0.35f + 1.05f * pressure) * (0.8f + b.sensitivity * 0.5f)
+                    base * (0.5f + 1.5f * pressure) * (0.9f + b.sensitivity * 0.4f)
                 com.globalannotate.app.model.PenStyle.MARKER,
-                com.globalannotate.app.model.PenStyle.HIGHLIGHTER -> base * 1.15f
-                com.globalannotate.app.model.PenStyle.WATER_COLOR -> base * (0.85f + 0.25f * pressure)
+                com.globalannotate.app.model.PenStyle.HIGHLIGHTER -> base * 1.2f
+                com.globalannotate.app.model.PenStyle.WATER_COLOR -> base * (1.0f + 0.3f * pressure)
                 else -> base * (0.9f + 0.25f * pressure)
             }
             stroke.points.add(InkPoint(x, y, w.coerceAtLeast(1f), 0.3f))
