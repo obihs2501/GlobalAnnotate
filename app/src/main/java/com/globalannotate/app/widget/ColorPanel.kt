@@ -224,9 +224,15 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
 
     /** `l1IIiiι` carries an HSL model; `lIIIlll()` is its ARGB colour. */
     private fun readRemoteModel(model: Any) {
-        val hsl = runCatching { model.javaClass.getMethod("m25502lIil11").invoke(model) }.getOrNull() ?: return
+        // Real names, not jadx's `mNNNNN…` placeholders: `lιIil11()` is the HSL
+        // model, `lIIIlll()` its ARGB colour and `l1IIiiι()` its alpha.
+        val hsl = runCatching { model.javaClass.getMethod("l\u03b9Iil11").invoke(model) }.getOrNull()
+        if (hsl == null) {
+            Log.w(TAG, "colour model ${model.javaClass.name} unreadable")
+            return
+        }
         val argb = runCatching { hsl.javaClass.getMethod("lIIIlll").invoke(hsl) as Int }.getOrNull() ?: return
-        val a = runCatching { hsl.javaClass.getMethod("m1087l1IIii").invoke(hsl) as Int }
+        val a = runCatching { hsl.javaClass.getMethod("l1IIii\u03b9").invoke(hsl) as Int }
             .getOrDefault(Color.alpha(argb))
             .coerceIn(3, 255)
         if ((argb and 0xFFFFFF) == (color and 0xFFFFFF) && a == alpha) return
