@@ -34,6 +34,7 @@ class MiCanvasPopupShell private constructor(
      * Size the inner content the way Mi Canvas' presenter does — its window
      * class overrides `setWidth`/`setHeight` so both write the content's layout
      * params — then let the original window place and animate itself.
+     */
     fun show(anchor: View, width: Int, height: Int, dx: Int = 0, dy: Int = 0): Boolean = runCatching {
         popup.width = width
         popup.height = height
