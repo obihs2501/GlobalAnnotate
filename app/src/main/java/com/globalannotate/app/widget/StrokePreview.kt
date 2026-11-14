@@ -48,24 +48,23 @@ class StrokePreview @JvmOverloads constructor(
         } else {
             b.style.toPixels(b.size, density)
         }
-        // Mi Canvas renders its sample as a diagonal stroke across the preview,
-        // width ~= size * density, with the pen's own profile.
-        val width = (b.style.toPixels(b.size, density) * 0.9f).coerceAtMost(height * 0.55f)
-        val x0 = width * 0.22f
-        val x1 = this.width - width * 0.22f
-        val y0 = height * 0.72f
-        val y1 = height * 0.28f
+        // Mi Canvas' sample is one S-wave across the strip: it dips, rises and
+        // dips again, the stroke is thinnest at both ends. The old diagonal is
+        // what made the preview look wrong next to the reference.
+        val width = base.coerceAtMost(height * 0.5f)
+        val margin = width * 0.6f + 2f * density
+        val x0 = margin
+        val x1 = this.width - margin
+        val cy = height * 0.5f
+        val amp = (height * 0.20f).coerceAtLeast(2f * density)
         for (i in 0..n) {
             val t = i / n.toFloat()
             val x = x0 + (x1 - x0) * t
-            val y = y0 + (y1 - y0) * t
-            val pressure = (0.85f - 0.25f * kotlin.math.abs(t - 0.5f) * 2f).coerceIn(0.5f, 1f)
-            val w = when (b.style) {
-                com.globalannotate.app.model.PenStyle.INK_PEN ->
-                    width * (0.55f + 0.45f * kotlin.math.sin(Math.PI * t).toFloat())
-                else -> width
-            }
-            stroke.points.add(InkPoint(x, y, w.coerceAtLeast(1f), 0.6f))
+            val y = cy + amp * kotlin.math.sin(2f * Math.PI.toFloat() * t)
+            // Pressure: gentle start, full body, gentle end.
+            val pressure = 0.35f + 0.65f * kotlin.math.sin(Math.PI.toFloat() * t)
+            val w = (width * pressure).coerceAtLeast(1f)
+            stroke.points.add(InkPoint(x, y, w, 0.6f))
         }
         return stroke
     }
