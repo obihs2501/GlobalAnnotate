@@ -821,8 +821,14 @@ class AnnotationService : Service(),
         val margin = dp(8)
         val desiredX = (anchorLeft + lp.width / 2 - width / 2)
             .coerceIn(margin, (screenWidth - width - margin).coerceAtLeast(margin))
-        val above = anchorTop - height - dp(10)
-        val desiredY = if (above >= dp(24)) above else anchorBottom + dp(10)
+        // Pick the side with more room and clamp inside it. A strict "does it fit
+        // with a marker gap" test flipped the popup below the bar, where a
+        // 571dp-tall surface ran past the bottom of the display.
+        val roomAbove = anchorTop - margin
+        val roomBelow = screenHeight - anchorBottom - margin
+        val placeAbove = roomAbove >= roomBelow
+        val unclampedY = if (placeAbove) anchorTop - height - dp(10) else anchorBottom + dp(10)
+        val desiredY = unclampedY.coerceIn(margin, (screenHeight - height - margin).coerceAtLeast(margin))
         val dx = desiredX - anchorLeft
         val dy = desiredY - anchorBottom
         Log.i(TAG, "shell place anchor=$anchorLeft,$anchorTop size=${width}x$height dx=$dx dy=$dy")
