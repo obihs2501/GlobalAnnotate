@@ -663,7 +663,7 @@ class AnnotationService : Service(),
     override fun onMode(mode: EraserMode) {
         canvas.brush = canvas.brush.copy(eraserMode = mode)
         refreshToolbar()
-        eraserPanel.brush = canvas.brush
+        if (::eraserPanel.isInitialized) eraserPanel.brush = canvas.brush
     }
 
     override fun onSize(size: Float) {

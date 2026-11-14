@@ -54,12 +54,12 @@ class EraserPanel(context: Context, private val listener: Listener) : LinearLayo
             gravity = Gravity.CENTER
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f)
         })
+        tabs.selectedIndex = 0
         tabs.onTabSelected = { index ->
             val mode = if (index == 0) EraserMode.PIXEL else EraserMode.STROKE
             listener.onMode(mode)
             brush = brush.copy(eraserMode = mode)
         }
-        tabs.selectedIndex = 0
 
         val row = LayoutInflater.from(context)
             .inflate(R.layout.penpicker_layout_pen_property_item, content, false)
