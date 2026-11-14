@@ -378,8 +378,8 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         const val PEN_HEIGHT_DP = 124
         /** Every tool rests this far outside the capsule (Mi Canvas: 18dp). */
         const val OUTWARD_DP = 18
-        /** Capsule is 108dp; the 124dp tools overhang it like the original. */
-        const val CAPSULE_DP = 108
+        /** Capsule covers the full 124dp tool row; only the 18dp travel pokes out. */
+        const val CAPSULE_DP = 124
         /** Window = tool row (124dp) + outward travel (18dp). */
         const val WINDOW_HEIGHT_DP = PEN_HEIGHT_DP + OUTWARD_DP + 4
         const val BAR_HEIGHT_DP = WINDOW_HEIGHT_DP
