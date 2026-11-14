@@ -266,6 +266,15 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         return loc[0] + view.width / 2
     }
 
+    /** Screen rect of the selected slot; the popup arrow anchors on it. */
+    fun selectedToolBounds(): android.graphics.Rect? {
+        val style = lastSelected ?: return null
+        val glyph = glyphs[style] ?: return null
+        val loc = IntArray(2)
+        glyph.getLocationOnScreen(loc)
+        return android.graphics.Rect(loc[0], loc[1], loc[0] + glyph.width, loc[1] + glyph.height)
+    }
+
     private fun circle(icon: Int, tap: () -> Unit): IconButton =
         IconButton(context).apply {
             iconRes = icon

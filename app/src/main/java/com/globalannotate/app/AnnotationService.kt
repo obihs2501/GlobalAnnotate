@@ -24,6 +24,7 @@ import android.widget.Toast
 import androidx.core.app.ServiceCompat
 import com.globalannotate.app.canvas.AnnotationCanvasView
 import com.globalannotate.app.export.LongCapture
+import com.globalannotate.app.mc.MiCanvasPopupShell
 import com.globalannotate.app.model.BrushConfig
 import com.globalannotate.app.model.EraserMode
 import com.globalannotate.app.model.PenStyle
@@ -101,6 +102,10 @@ class AnnotationService : Service(),
     /** The fourth swatch: the colour Mi Canvas keeps there. 0 = rainbow disc. */
     private var customColor = 0
     private var openPanel: View? = null
+    /** Mi Canvas' own arrow subtree, when that is the popup on screen. */
+    private var openShell: MiCanvasPopupShell? = null
+    /** Transparent tool-shaped anchor inside the overlay window; the arrow binds to it. */
+    private var shellAnchor: View? = null
     /** Guards the delayed end action of a panel close animation. */
     private var panelEpoch = 0
 
@@ -347,12 +352,9 @@ class AnnotationService : Service(),
                 fingerScrolling = false
                 fingerTouchedOutside = false
                 lastFingerY = event.y
-                if (openPanel != null) {
-                    val panel = openPanel ?: return
-                    val loc = IntArray(2)
-                    panel.getLocationOnScreen(loc)
-                    val inside = event.x >= loc[0] && event.x <= loc[0] + panel.width &&
-                        event.y >= loc[1] && event.y <= loc[1] + panel.height
+                visiblePopupBounds()?.let { bounds ->
+                    val inside = event.x >= bounds.left && event.x <= bounds.right &&
+                        event.y >= bounds.top && event.y <= bounds.bottom
                     if (!inside) {
                         closePanels()
                         fingerTouchedOutside = true
@@ -684,10 +686,68 @@ class AnnotationService : Service(),
     private fun showColorPanel(anchorX: Int) {
         colorPanel.color = canvas.brush.color
         colorPanel.setAlphaValue(canvas.brush.alpha)
+        val shell = colorPanel.originalShell()
+        if (shell != null) {
+            showShell(shell)
+            return
+        }
         // Mi Canvas' dimens: 360dp wide, height clamped to
         // `creation_color_picker_popup_height` (470dp) even though the layout
         // declares 571dp.
         showPanel(colorPanel, anchorX, dp(360), dp(470))
+    }
+
+    /**
+     * Mi Canvas' own popup, hosted whole: the arrow root fills this overlay and the
+     * anchor is a transparent tool-shaped view inside that same window, so the
+     * original direction/offset code sees a single coordinate space.
+     */
+    private fun showShell(shell: MiCanvasPopupShell) {
+        val already = openShell === shell && popupHost.visibility == View.VISIBLE
+        closePanels(animate = false)
+        if (already) return
+        panelEpoch++
+        val epoch = panelEpoch
+        val anchor = shellAnchor ?: View(this).also { shellAnchor = it }
+        if (popupHost.indexOfChild(anchor) < 0) {
+            popupHost.addView(anchor, FrameLayout.LayoutParams(dp(48), dp(ToolbarView.PEN_HEIGHT_DP)))
+        }
+        if (popupHost.indexOfChild(shell.root) < 0) {
+            popupHost.addView(shell.root, FrameLayout.LayoutParams(MATCH, MATCH))
+        }
+        // Mi Canvas lifts popups with a 150-blur MiShadow; elevation is the closest
+        // the platform lets an overlay window draw, the same choice the panels use.
+        shell.root.elevation = dp(20).toFloat()
+        shell.root.alpha = 0f
+        openShell = shell
+        popupHost.visibility = View.VISIBLE
+        popupHost.invalidate()
+        excludeFromCapture(popupHost)
+        updateExclusionAfterLayout()
+        popupHost.post {
+            if (epoch != panelEpoch || openShell !== shell) return@post
+            val host = IntArray(2)
+            popupHost.getLocationOnScreen(host)
+            val tool = toolbar.selectedToolBounds()
+            val lp = anchor.layoutParams as FrameLayout.LayoutParams
+            if (tool != null) {
+                lp.width = tool.width()
+                lp.height = tool.height()
+                lp.leftMargin = tool.left - host[0]
+                lp.topMargin = tool.top - host[1]
+            }
+            anchor.layoutParams = lp
+            shell.prepare(anchor, dp(360), dp(470))
+            // prepare() clears the animation state, so hide the root again until
+            // the original enter animation takes over.
+            shell.root.alpha = 0f
+            popupHost.post {
+                if (epoch != panelEpoch || openShell !== shell) return@post
+                shell.enter()
+                updateExclusion()
+            }
+        }
+        updateExclusion()
     }
 
     private fun showPanel(panel: View, anchorX: Int, widthPx: Int, fixedHeightPx: Int) {
@@ -742,6 +802,27 @@ class AnnotationService : Service(),
     }
 
     private fun closePanels(animate: Boolean = true) {
+        val shell = openShell
+        if (shell != null) {
+            openShell = null
+            val epoch = ++panelEpoch
+            if (animate) {
+                // Original exit: scale 1.0 -> 0.6 and alpha -> 0 (150ms when
+                // animations are enabled).
+                shell.exit()
+                popupHost.postDelayed({
+                    if (epoch == panelEpoch) {
+                        shell.root.alpha = 0f
+                        popupHost.visibility = View.GONE
+                    }
+                }, 170)
+            } else {
+                shell.root.alpha = 0f
+                popupHost.visibility = View.GONE
+            }
+            updateExclusion()
+            return
+        }
         val panel = openPanel ?: return
         openPanel = null
         // Bumping the epoch invalidates the end action of any close animation
@@ -768,6 +849,18 @@ class AnnotationService : Service(),
         updateExclusion()
     }
 
+    /** Screen rect of whatever popup is on screen, if any. */
+    private fun visiblePopupBounds(): Rect? {
+        openShell?.let { shell ->
+            val r = shell.bounds()
+            if (r.width() > 0 && r.height() > 0) return r
+        }
+        val panel = openPanel ?: return null
+        val loc = IntArray(2)
+        panel.getLocationOnScreen(loc)
+        return Rect(loc[0], loc[1], loc[0] + panel.width, loc[1] + panel.height)
+    }
+
     /** Tell the helper which screen rects must keep their normal input routing. */
     /**
      * The rects are built from a view's laid-out size, so a bar or panel that was
@@ -792,6 +885,12 @@ class AnnotationService : Service(),
         add(toolbar, toolbarVisible)
         add(orb, active)
         openPanel?.let { add(it, true) }
+        // Mi Canvas' popup is the arrow root's visible surface, not the
+        // full-display root that hosts the arrow and its travel.
+        openShell?.let { shell ->
+            val r = shell.bounds()
+            if (r.width() > 0 && r.height() > 0) rects.add(r)
+        }
         // The helper's excluded region is in the display's *current* space, the
         // same space getLocationOnScreen() reports: a rotation mapping here sent
         // the toolbar rect somewhere else and the pen kept painting on it. Measured

@@ -12,6 +12,7 @@ import android.widget.SeekBar
 import android.widget.TextView
 import com.globalannotate.app.R
 import com.globalannotate.app.mc.McBridge
+import com.globalannotate.app.mc.MiCanvasPopupShell
 import com.globalannotate.app.mc.MiCanvasUi
 import com.globalannotate.app.model.BrushConfig
 import com.globalannotate.app.penpicker.ColorPickPanelView
@@ -48,6 +49,8 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
     private var remoteActive = false
     private var remotePopup: android.widget.PopupWindow? = null
     private var remoteContent: View? = null
+    /** The whole original arrow subtree, when Mi Canvas' popup could be lifted. */
+    private var remoteShell: MiCanvasPopupShell? = null
     private var remoteSetColour: java.lang.reflect.Method? = null
     /** Guards the colour setter while a change comes from Mi Canvas itself. */
     private var remoteEcho = false
@@ -159,21 +162,19 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
      * Everything above is the fallback for a device without Mi Canvas installed.
      * When its APK is present the whole popup comes from there: the miuix tab is
      * theirs, the board is theirs, both rail pages are theirs, the block and the
-     * recent colours are theirs — we only take the content view out of their
-     * PopupWindow (the arrow chrome and window sizing belong to its presenter)
-     * and drive it through the two entry points it expects.
+     * recent colours are theirs.
+     *
+     * Their `PopupWindow` hides the real `ArrowPopupView` — its `getContentView()`
+     * is overridden and returns only the inner content — so the arrow, the
+     * automatic direction choice and the enter/exit animation are reached through
+     * [MiCanvasPopupShell], which the service hosts in the same overlay as the
+     * anchor. Without that shell we keep the older fallback of hosting just the
+     * inner content in this view.
      */
     private fun installMiCanvasPopup() {
         val started = System.currentTimeMillis()
         val popup = MiCanvasUi.createColorPopup() ?: return
-        val content = popup.contentView ?: return
-        (content.parent as? ViewGroup)?.removeView(content)
         remotePopup = popup
-        remoteContent = content
-        removeAllViews()
-        addView(content, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
-        remoteActive = true
-
         remoteSetColour = runCatching {
             popup.javaClass.getMethod(MC_SET_COLOUR, Integer.TYPE)
         }.getOrNull()
@@ -181,13 +182,34 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
             Log.w(TAG, "setColour not found; the popup will only report changes")
         }
         bindRemoteListener(popup)
-        // The straw runs our own screen picker instead of their floating one.
+
+        val shell = MiCanvasPopupShell.from(popup)
+        if (shell != null) {
+            remoteShell = shell
+            remoteActive = true
+            // The straw runs our own screen picker instead of their floating one.
+            findInTree(shell.root) { it.javaClass.name == MC_STRAW }?.setOnClickListener {
+                listener.onPipette()
+            }
+            Log.i(TAG, "Mi Canvas popup shell ready in ${System.currentTimeMillis() - started} ms")
+            return
+        }
+
+        val content = popup.contentView ?: return
+        (content.parent as? ViewGroup)?.removeView(content)
+        remoteContent = content
+        removeAllViews()
+        addView(content, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        remoteActive = true
         findInTree(content) { it.javaClass.name == MC_STRAW }?.setOnClickListener {
             listener.onPipette()
         }
         syncViews(fromGrid = true)
-        Log.i(TAG, "Mi Canvas popup ready in ${System.currentTimeMillis() - started} ms")
+        Log.i(TAG, "Mi Canvas popup content ready in ${System.currentTimeMillis() - started} ms")
     }
+
+    /** The real arrow subtree, when Mi Canvas' popup could be taken over whole. */
+    fun originalShell(): MiCanvasPopupShell? = remoteShell
 
     /**
      * Mi Canvas notifies colour changes through an interface with a single
