@@ -1043,6 +1043,12 @@ class AnnotationService : Service(),
             "com.globalannotate.action.SCREENSHOT" -> {
                 screenshotExclude = intent.getBooleanExtra("exclude", true)
                 Log.i(TAG, "screenshot exclusion=$screenshotExclude")
+                // Windows created before the switch were already flagged; clear
+                // (or re-apply) the flag on every live overlay so screencap can
+                // actually see the UI being verified.
+                for (view in listOf(canvas, toolbar, orb, popupHost, palette)) {
+                    runCatching { Hidden.setSkipScreenshot(view, screenshotExclude) }
+                }
             }
             "com.globalannotate.action.LATENCY" -> {
                 InkTiming.enabled = intent.getBooleanExtra("enabled", InkTiming.enabled)
