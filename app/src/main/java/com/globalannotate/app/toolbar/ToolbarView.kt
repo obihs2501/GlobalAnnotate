@@ -56,9 +56,14 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
 
     var dragListener: DragListener? = null
 
+    /** Colour of the fourth slot; 0 shows the rainbow disc (nothing picked yet). */
+    var customColor: Int = 0
+        set(value) { field = value; customSwatch?.color = value }
+
     private val density = resources.displayMetrics.density
     private val glyphs = linkedMapOf<PenStyle, BrushGlyph>()
     private val swatches = mutableListOf<Swatch>()
+    private var customSwatch: CustomSwatch? = null
     private val undo: IconButton
     private val redo: IconButton
     private val more: IconButton
@@ -132,9 +137,11 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
                     swatches.add(swatch)
                     line.addView(swatch, cell)
                 } else {
-                    line.addView(RainbowSwatch().apply {
+                    val custom = CustomSwatch().apply {
                         onTap = { listener.onOpenColorPanel(centerOnScreen(this)) }
-                    }, cell)
+                    }
+                    customSwatch = custom
+                    line.addView(custom, cell)
                 }
             }
             grid.addView(line, LinearLayout.LayoutParams(MATCH, 0, 1f))
@@ -327,18 +334,17 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
             paint.style = Paint.Style.FILL
             paint.color = color
             canvas.drawCircle(cx, cy, r, paint)
-            if (checked) {
-                paint.style = Paint.Style.STROKE
-                paint.strokeWidth = 2f * density
-                paint.color = if (isNight()) Color.WHITE else Color.BLACK
-                canvas.drawCircle(cx, cy, r + 3f * density, paint)
-            }
         }
     }
 
-    /** Rainbow disc: white core, hue ring, thin white rim — as in the reference. */
-    private inner class RainbowSwatch : View(context) {
+    /**
+     * Fourth swatch. Mi Canvas keeps the colour you last picked here — the
+     * rainbow disc is just the empty state, not a permanent decoration.
+     */
+    private inner class CustomSwatch : View(context) {
         var onTap: (() -> Unit)? = null
+        var color: Int = 0
+            set(value) { field = value; invalidate() }
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val colors = intArrayOf(
             Color.parseColor("#E7E040"), Color.parseColor("#EEAA3C"),
@@ -358,6 +364,17 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
             val cx = width / 2f
             val cy = height / 2f
             val r = min(width, height) * 0.46f
+            if (color != 0) {
+                paint.style = Paint.Style.FILL
+                paint.shader = null
+                paint.color = color
+                canvas.drawCircle(cx, cy, r, paint)
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 1.2f * density
+                paint.color = Color.argb(60, 0, 0, 0)
+                canvas.drawCircle(cx, cy, r, paint)
+                return
+            }
             paint.style = Paint.Style.FILL
             paint.shader = null
             paint.color = Color.WHITE

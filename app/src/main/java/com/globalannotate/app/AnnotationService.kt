@@ -98,6 +98,8 @@ class AnnotationService : Service(),
     private var toolbarVisible = false
     private var autoMinimize = true
     private var fingerDraw = false
+    /** The fourth swatch: the colour Mi Canvas keeps there. 0 = rainbow disc. */
+    private var customColor = 0
     private var openPanel: View? = null
     /** Guards the delayed end action of a panel close animation. */
     private var panelEpoch = 0
@@ -561,7 +563,10 @@ class AnnotationService : Service(),
         // in sync, otherwise the palette looks stuck.
         // De-duplicate: a colour that appears in both lists would otherwise restart
         // the cycle at its first copy and the gesture would look stuck.
-        val colors = (BrushConfig.QUICK_COLORS + BrushConfig.RECENT_COLORS).distinct()
+        // Only the colours that are actually on the bar: the three quick swatches
+        // plus the custom slot. The recent-colour list belongs to the popup.
+        val colors = (BrushConfig.QUICK_COLORS + listOfNotNull(customColor.takeIf { it != 0 }))
+            .distinct()
         val index = colors.indexOf(canvas.brush.color)
         val next = colors[(index + 1).mod(colors.size)]
         canvas.brush = canvas.brush.copy(color = next)
@@ -640,6 +645,10 @@ class AnnotationService : Service(),
     }
 
     override fun onColor(color: Int) {
+        if (BrushConfig.QUICK_COLORS.none { it == color }) {
+            customColor = color
+            prefs.edit().putInt(KEY_CUSTOM, customColor).apply()
+        }
         canvas.brush = canvas.brush.copy(color = color)
         colorPanel.color = color
         brushPanel.updateColor(color)
@@ -882,6 +891,7 @@ class AnnotationService : Service(),
 
 
     private fun refreshToolbar() {
+        toolbar.customColor = customColor
         toolbar.update(canvas.brush, canvas.canUndo(), canvas.canRedo())
         orb.style = canvas.brush.style
         orb.color = canvas.brush.color
@@ -1133,6 +1143,7 @@ class AnnotationService : Service(),
             eraserMode = eraserMode,
             eraserSize = num(KEY_ERASER_SIZE)?.toFloat() ?: PenStyle.ERASER.defaultSize.toFloat(),
         )
+        customColor = num(KEY_CUSTOM)?.toInt() ?: 0
     }
 
     private fun saveGestures() {
@@ -1240,6 +1251,7 @@ class AnnotationService : Service(),
         private const val KEY_TIP = "tip"
         private const val KEY_ERASER_MODE = "eraser_mode"
         private const val KEY_ERASER_SIZE = "eraser_size"
+        private const val KEY_CUSTOM = "custom_color"
 
         var isRunning: Boolean = false
             private set
