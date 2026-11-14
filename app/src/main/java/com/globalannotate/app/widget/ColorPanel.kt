@@ -226,7 +226,11 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
      */
     private fun installMiCanvasPopup() {
         val started = System.currentTimeMillis()
-        val popup = MiCanvasUi.createColorPopup() ?: return
+        val popup = MiCanvasUi.createColorPopup()
+        if (popup == null) {
+            Log.w(TAG, "Mi Canvas popup unavailable; using the local layout")
+            return
+        }
         remotePopup = popup
         remoteSetColour = runCatching {
             popup.javaClass.getMethod(MC_SET_COLOUR, Integer.TYPE)
@@ -237,18 +241,25 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
         if (shell != null) {
             remoteShell = shell
             remoteActive = true
-            bindShellOpacityRails(shell)
-            bindShellRecentColors(shell)
-            val blockId = MiCanvasUi.id("penpicker_display_block")
-            shellBlock = if (blockId != 0) shell.root.findViewById(blockId) else null
-            updateShellBlock()
-            // The straw runs our own screen picker instead of their floating one.
+            // Each binding is independent: one missing widget must not take the
+            // whole popup down, and the reason must be visible in logcat.
+            runCatching { bindShellOpacityRails(shell) }
+                .onFailure { Log.w(TAG, "opacity rails failed: $it") }
+            runCatching { bindShellRecentColors(shell) }
+                .onFailure { Log.w(TAG, "recent colours failed: $it") }
+            runCatching {
+                val blockId = MiCanvasUi.id("penpicker_display_block")
+                shellBlock = if (blockId != 0) shell.root.findViewById(blockId) else null
+                updateShellBlock()
+                Log.i(TAG, "display block id=$blockId view=${shellBlock?.javaClass?.simpleName}")
+            }.onFailure { Log.w(TAG, "display block failed: $it") }
             findInTree(shell.root) { it.javaClass.name == MC_STRAW }?.setOnClickListener {
                 listener.onPipette()
             }
             Log.i(TAG, "Mi Canvas popup shell ready in ${System.currentTimeMillis() - started} ms")
             return
         }
+        Log.w(TAG, "arrow subtree unavailable; falling back to the inner content")
 
         val content = popup.contentView ?: return
         (content.parent as? ViewGroup)?.removeView(content)
