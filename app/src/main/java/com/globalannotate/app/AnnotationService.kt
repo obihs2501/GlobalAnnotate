@@ -23,6 +23,7 @@ import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.core.app.ServiceCompat
 import com.globalannotate.app.canvas.AnnotationCanvasView
+import com.globalannotate.app.canvas.InkTiming
 import com.globalannotate.app.export.LongCapture
 import com.globalannotate.app.mc.MiCanvasPopupShell
 import com.globalannotate.app.mc.MiCanvasUi
@@ -100,6 +101,8 @@ class AnnotationService : Service(),
     private var toolbarVisible = false
     private var autoMinimize = true
     private var fingerDraw = false
+    /** True while the colour editor was opened from the fourth (custom) slot. */
+    private var editingCustomColor = false
     /** The fourth swatch: the colour Mi Canvas keeps there. 0 = rainbow disc. */
     private var customColor = 0
     private var openPanel: View? = null
@@ -158,10 +161,11 @@ class AnnotationService : Service(),
 
         toolbar = ToolbarView(this, this).apply { dragListener = this@AnnotationService }
         orb = BrushGlyph(this).apply {
-            // Mi Canvas' minimized ball: a 96dp disc with a 73dp pen, not the
-            // 56dp satchel we used before.
+            // Tablet resource `creation_brush_head_height_1_2 = 70.8dp`, read
+            // from Mi Canvas' own Resources when available (was a hard-coded 73).
             artOffsetDp = 0f
-            artLengthDp = 73f
+            artLengthDp = MiCanvasUi.dimension("creation_brush_head_height_1_2")
+                .takeIf { it > 0 }?.let { it / resources.displayMetrics.density } ?: 70.8f
             val capsule = androidx.core.content.ContextCompat.getColor(
                 this@AnnotationService, R.color.penpicker_background_color,
             )
@@ -173,7 +177,11 @@ class AnnotationService : Service(),
                 setColor(if (night) 0xFF242424.toInt() else 0xFFF2F2F2.toInt())
             }
             elevation = dp(8).toFloat()
-            setOnClickListener { expandBar() }
+            // The orb is the toolbar's toggle: collapse when expanded, expand
+            // when collapsed (including after auto-minimise on pen-down).
+            setOnClickListener {
+                if (toolbarVisible) collapseBar() else expandBar()
+            }
         }
         popupHost = FrameLayout(this)
         dismissLayer = View(this).apply {
@@ -648,7 +656,9 @@ class AnnotationService : Service(),
     }
 
     override fun onColor(color: Int) {
-        if (BrushConfig.QUICK_COLORS.none { it == color }) {
+        // A colour chosen while the fourth slot's editor is open replaces that
+        // slot, even when it happens to equal one of the three presets.
+        if (editingCustomColor || BrushConfig.QUICK_COLORS.none { it == color }) {
             customColor = color
             prefs.edit().putInt(KEY_CUSTOM, customColor).apply()
         }
@@ -658,7 +668,16 @@ class AnnotationService : Service(),
         refreshToolbar()
     }
 
-    override fun onOpenColorPanel(anchorX: Int) = showColorPanel(anchorX)
+    override fun onOpenColorPanel(anchorX: Int) {
+        showColorPanel(anchorX)
+        editingCustomColor = false
+    }
+
+    /** Fourth slot: open the editor; do not switch to the slot's stored colour. */
+    override fun onOpenCustomColor(anchorX: Int) {
+        showColorPanel(anchorX)
+        editingCustomColor = true
+    }
 
     override fun onOpenMore(anchorX: Int) {
         Log.i(TAG, "more tap at $anchorX")
@@ -750,6 +769,7 @@ class AnnotationService : Service(),
         // The original window animates and dismisses itself; this only keeps the
         // app's own state (exclusion, which popup is open) in step.
         shell.popup.setOnDismissListener {
+            editingCustomColor = false
             if (openShell === shell) {
                 openShell = null
                 popupHost.visibility = View.GONE
@@ -949,7 +969,7 @@ class AnnotationService : Service(),
 
     override fun onGestureSettings() {
         gesturePanel.actions = gestureMap
-        showPanel(gesturePanel, screenWidth / 2, dp(288), 0)
+        showPanel(gesturePanel, screenWidth / 2, dp(320), dp(430))
     }
 
     override fun onLongShot() { closePanels(); captureLongShot() }
@@ -977,6 +997,13 @@ class AnnotationService : Service(),
                 if (!active) setActive(true) else applyGesture(gesture)
             }
             Actions.SET_SPLIT_MODE -> Unit
+            // Switchable ink-latency instrumentation (off by default).
+            "com.globalannotate.action.LATENCY" -> {
+                InkTiming.enabled = intent.getBooleanExtra("enabled", InkTiming.enabled)
+                if (intent.getBooleanExtra("reset", false)) InkTiming.reset()
+                if (intent.getBooleanExtra("dump", false)) InkTiming.dump()
+                Log.i(TAG, "ink timing enabled=${InkTiming.enabled}")
+            }
             "com.globalannotate.action.DUMPMC" -> {
                 for (name in listOf(
                     "com.xiaomi.penpicker.colorpicker.ColorPickerAlphaView",
@@ -1203,6 +1230,10 @@ class AnnotationService : Service(),
             val picked = bitmap.getPixel(x, y)
             bitmap.recycle()
             val opaque = picked or 0xFF000000.toInt()
+            if (editingCustomColor) {
+                customColor = opaque
+                prefs.edit().putInt(KEY_CUSTOM, customColor).apply()
+            }
             canvas.brush = canvas.brush.copy(color = opaque)
             colorPanel.color = opaque
             brushPanel.updateColor(opaque)

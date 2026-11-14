@@ -43,6 +43,8 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         fun onTool(style: PenStyle, anchorX: Int)
         fun onColor(color: Int)
         fun onOpenColorPanel(anchorX: Int)
+        /** Fourth slot: open the colour editor; the picked colour replaces that slot. */
+        fun onOpenCustomColor(anchorX: Int)
         fun onOpenMore(anchorX: Int)
         fun onUndo()
         fun onRedo()
@@ -138,7 +140,7 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
                     line.addView(swatch, cell)
                 } else {
                     val custom = CustomSwatch().apply {
-                        onTap = { listener.onOpenColorPanel(centerOnScreen(this)) }
+                        onTap = { listener.onOpenCustomColor(centerOnScreen(this)) }
                     }
                     customSwatch = custom
                     line.addView(custom, cell)

@@ -7,6 +7,7 @@ import android.os.IBinder
 import android.os.Parcel
 import android.os.Process
 import android.view.MotionEvent
+import com.globalannotate.app.canvas.InkTiming
 
 /**
  * Receives stylus MotionEvents rerouted by the LSPosed module.
@@ -39,7 +40,10 @@ class AnnotationInputService : Service() {
                     val event = MotionEvent.CREATOR.createFromParcel(data)
                     val canvas = Session.canvas
                     if (canvas != null && Session.rootSplitActive) {
+                        val postedAt = System.nanoTime()
+                        InkTiming.onIpc(event.eventTime, android.os.SystemClock.uptimeMillis())
                         canvas.post {
+                            InkTiming.onQueued(postedAt)
                             canvas.injectStylusEvent(event)
                             event.recycle()
                         }

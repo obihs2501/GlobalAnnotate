@@ -119,7 +119,15 @@ class AnnotationCanvasView(context: Context) : View(context) {
     // ── stroke lifecycle ───────────────────────────────────────────────────
 
     fun injectStylusEvent(event: MotionEvent): Boolean {
-        if (event.pointerCount == 0) return false
+        val t0 = System.nanoTime()
+        try {
+            return injectStylusEventInternal(event)
+        } finally {
+            InkTiming.onInject(System.nanoTime() - t0)
+        }
+    }
+
+    private fun injectStylusEventInternal(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 onPenDown?.invoke()
@@ -192,11 +200,38 @@ class AnnotationCanvasView(context: Context) : View(context) {
             anchorY = y
             lastMoveTime = now
         }
-        redrawActive()
+        // Each sample used to clear the whole bitmap, copy the base ink and
+        // repaint the entire stroke on the main thread. At 240Hz that is dozens
+        // of full-screen blits per frame. Coalesce them into one repaint per
+        // drawn frame; the full-stroke redraw is kept, so seams stay fixed.
+        InkTiming.onSample()
+        requestFrameRedraw()
         invalidate()
     }
 
+    private var frameRedrawPending = false
+    private val frameRedraw = Runnable {
+        frameRedrawPending = false
+        if (active != null) {
+            val t0 = System.nanoTime()
+            redrawActive()
+            InkTiming.onRedraw(System.nanoTime() - t0)
+            invalidate()
+        }
+    }
+
+    private fun requestFrameRedraw() {
+        if (frameRedrawPending) return
+        frameRedrawPending = true
+        postOnAnimation(frameRedraw)
+    }
+
     private fun end() {
+        // Flush the pending coalesced redraw before the stroke is committed,
+        // otherwise the last samples never reach the bitmap.
+        removeCallbacks(frameRedraw)
+        frameRedrawPending = false
+        InkTiming.onStrokeEnd()
         val finished = active ?: return
         active = null
         val now = System.currentTimeMillis()

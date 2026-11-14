@@ -46,8 +46,15 @@ class RadialPaletteView(context: Context) : View(context) {
         Action.COLOR to "颜色",
     )
 
-    private val ringRadius get() = 104 * density
-    private val itemRadius get() = 23 * density
+    // `arc_pen_picker_*` from Mi Canvas resources (values/dimens.xml), not a
+    // guessed approximation: inner 160 / middle 192 / outer 224 / outermost 246dp.
+    private val inner get() = 160 * density
+    private val middle get() = 192 * density
+    private val outer get() = 224 * density
+    private val outermost get() = 246 * density
+    private val itemRadius get() = (outer - inner) / 2f
+    private val ringRadius get() = middle
+
     private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val itemPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -66,9 +73,13 @@ class RadialPaletteView(context: Context) : View(context) {
         color = Color.argb(70, 0, 0, 0)
     }
 
+    /** Mi Canvas `arc_pen_picker_*`: right-hand fan 82deg -> -42deg on a 192dp ring. */
+    private val startAngle = Math.toRadians(82.0)
+    private val endAngle = Math.toRadians(-42.0)
+
     fun showAt(x: Float, y: Float) {
-        anchorX = x.coerceIn(ringRadius + itemRadius, width - ringRadius - itemRadius)
-        anchorY = y.coerceIn(ringRadius + itemRadius, height - ringRadius - itemRadius)
+        anchorX = x.coerceIn(outermost, width - outermost)
+        anchorY = y.coerceIn(outermost, height - outermost)
         hovered = -1
         visible = true
         invalidate()
@@ -82,16 +93,15 @@ class RadialPaletteView(context: Context) : View(context) {
 
     fun isOpen(): Boolean = visible
 
+    /** Evenly spaced along the original 82deg -> -42deg arc, on the middle ring. */
     fun positionOf(index: Int): FloatArray {
-        val start = -Math.PI * 0.95
-        val step = Math.PI * 1.9 / (items.size - 1)
-        val angle = start + step * index
+        val t = if (items.size == 1) 0.5 else index.toDouble() / (items.size - 1)
+        val angle = startAngle + (endAngle - startAngle) * t
         return floatArrayOf(
-            anchorX + (cos(angle) * ringRadius).toFloat(),
-            anchorY + (sin(angle) * ringRadius).toFloat(),
+            anchorX + (cos(angle) * middle).toFloat(),
+            anchorY + (sin(angle) * middle).toFloat(),
         )
     }
-
     override fun onDraw(canvas: Canvas) {
         if (!visible) return
         // A soft disc behind the arc so labels stay legible on any page.
