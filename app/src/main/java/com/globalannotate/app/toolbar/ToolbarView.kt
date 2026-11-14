@@ -169,6 +169,10 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
     }
 
     override fun dispatchDraw(canvas: Canvas) {
+        // Translucent overlay windows keep their previous frame unless the view
+        // clears it, so a stale white capsule from the day theme (or from an
+        // older bar position) used to peek out from behind the current one.
+        canvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
         drawCapsule(canvas)
         super.dispatchDraw(canvas)
         drawHandle(canvas)
