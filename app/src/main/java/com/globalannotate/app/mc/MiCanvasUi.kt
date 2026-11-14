@@ -119,6 +119,10 @@ object MiCanvasUi {
             override fun getAssets() = base.assets
             override fun getPackageName(): String = PKG
             override fun getTheme() = base.theme
+            // A package context from another app has no Application object, so
+            // ContextWrapper.getApplicationContext() returns null and Mi Canvas'
+            // picker manager NPEs on it. This wrapper is a complete context.
+            override fun getApplicationContext(): Context = this
         }
         val theme = info.theme
         // ContextThemeWrapper keeps the base's class loader and resources, and
