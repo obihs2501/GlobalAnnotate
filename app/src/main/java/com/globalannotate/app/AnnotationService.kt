@@ -85,6 +85,8 @@ class AnnotationService : Service(),
     private lateinit var dismissLayer: View
     private lateinit var palette: RadialPaletteView
     private lateinit var paletteParams: WindowManager.LayoutParams
+    private lateinit var fingerSpy: View
+    private lateinit var fingerSpyParams: WindowManager.LayoutParams
 
     private lateinit var colorPanel: ColorPanel
     private lateinit var brushPanel: BrushPanel
@@ -115,6 +117,9 @@ class AnnotationService : Service(),
     private var squeezeCount = 0
     private var lastSqueezeMs = 0L
     private var busyExporting = false
+    /** True once the spy window has delivered a finger event; the helper copy is
+     *  then redundant. */
+    private var spyWorks = false
 
     override fun onCreate() {
         super.onCreate()
@@ -135,13 +140,19 @@ class AnnotationService : Service(),
             onStateChanged = { refreshToolbar() }
             onPenDown = { if (autoMinimize) collapseBar() }
         }
+        // The window is declared as a stylus interceptor (see canvasParams), so
+        // it receives the pen directly and never sees a finger.
         canvas.setOnTouchListener { _, event ->
-            // Fallback (no root helper): the window is touchable and the pen
-            // arrives through the regular dispatch path.
-            if (helperReady and HelperProtocol.READY_INTERCEPT != 0) return@setOnTouchListener false
             if (event.actionMasked == MotionEvent.ACTION_DOWN) closePanels()
             canvas.injectStylusEvent(event)
             true
+        }
+        fingerSpy = View(this).apply {
+            setOnTouchListener { _, event ->
+                spyWorks = true
+                dispatchFinger(event)
+                false
+            }
         }
 
         toolbar = ToolbarView(this, this).apply { dragListener = this@AnnotationService }
@@ -177,7 +188,12 @@ class AnnotationService : Service(),
 
         val base = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
         val helperFlags = base or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-        canvasParams = overlay(MATCH, MATCH, helperFlags)
+        canvasParams = overlay(MATCH, MATCH, helperFlags).apply {
+            inputFeatures = WindowManager.LayoutParams.INPUT_FEATURE_INTERCEPTS_STYLUS
+        }
+        fingerSpyParams = overlay(MATCH, MATCH, helperFlags).apply {
+            inputFeatures = WindowManager.LayoutParams.INPUT_FEATURE_SPY
+        }
         val barWidth = toolbar.contentWidthPx().coerceAtLeast(dp(360))
         toolbarParams = overlay(barWidth, dp(BAR_HEIGHT_DP), base).apply {
             x = prefs.getInt(KEY_BAR_X, -1).let { if (it >= 0) it else (screenWidth - barWidth) / 2 }
@@ -191,6 +207,7 @@ class AnnotationService : Service(),
         popupParams = overlay(MATCH, MATCH, base)
         paletteParams = overlay(MATCH, MATCH, helperFlags)
 
+        windowManager.addView(fingerSpy, fingerSpyParams)
         windowManager.addView(canvas, canvasParams)
         windowManager.addView(orb, orbParams)
         windowManager.addView(toolbar, toolbarParams)
@@ -233,8 +250,13 @@ class AnnotationService : Service(),
                 }
             }
 
-            override fun onStylus(event: MotionEvent) = dispatchStylus(event)
-            override fun onFinger(event: MotionEvent) = dispatchFinger(event)
+            override fun onStylus(event: MotionEvent) {
+                // The interceptor window receives the pen itself; a helper copy
+                // would draw every stroke twice.
+            }
+            override fun onFinger(event: MotionEvent) {
+                if (!spyWorks) dispatchFinger(event)
+            }
             override fun onPenKey(scanCode: Int, value: Int, uptimeMs: Long) =
                 dispatchPenKey(scanCode, value)
 
@@ -253,26 +275,14 @@ class AnnotationService : Service(),
         client.start()
     }
 
-    /** Without the helper the canvas itself must become touchable. */
+    /**
+     * The canvas is a stylus-only input window: `INTERCEPTS_STYLUS` routes the
+     * pen to it and leaves every finger to the app underneath. That flag is
+     * what makes annotation over a live app possible without taking touches
+     * away from it. The helper adds global pen keys and screenshots on top.
+     */
     private fun applyInputMode() {
-        val intercept = helperReady and HelperProtocol.READY_INTERCEPT != 0
-        val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            (if (intercept) WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE else 0) or
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-        if (canvasParams.flags != flags) {
-            canvasParams.flags = flags
-            runCatching { windowManager.updateViewLayout(canvas, canvasParams) }
-        }
-        val paletteFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            if (intercept) WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE else 0
-        if (paletteParams.flags != paletteFlags) {
-            paletteParams.flags = paletteFlags
-            runCatching { windowManager.updateViewLayout(palette, paletteParams) }
-        }
-        if (intercept) {
-            // Native touch dispatch keeps fingers going to the app underneath.
-            canvasParams.alpha = 1f
-        }
+        // Nothing to switch: the window configuration already does the job.
     }
 
     // ── stylus / finger / keys ─────────────────────────────────────────────
@@ -378,13 +388,11 @@ class AnnotationService : Service(),
         if (value) {
             expandBar()
             helper?.setOpacityLifted(true)
-            helper?.setIntercept(helperReady and HelperProtocol.READY_INTERCEPT != 0)
         } else {
             toolbarVisible = false
             closePanels()
             palette.hide()
             toolbar.visibility = View.GONE
-            helper?.setIntercept(false)
             helper?.setOpacityLifted(false)
         }
         refreshToolbar()
@@ -973,7 +981,7 @@ class AnnotationService : Service(),
         notifyModule(Actions.SET_MODULE_ENABLED, false)
         helper?.stop()
         helper = null
-        (listOf(canvas, toolbar, orb, popupHost, palette)).forEach { view ->
+        (listOf(fingerSpy, canvas, toolbar, orb, popupHost, palette)).forEach { view ->
             if (view.isAttachedToWindow) runCatching { windowManager.removeView(view) }
         }
         if (Session.service === this) Session.service = null
