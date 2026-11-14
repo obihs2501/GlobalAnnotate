@@ -878,8 +878,17 @@ class AnnotationService : Service(),
                         popup.isOutsideTouchable = true
                         popup.showAsDropDown(toolbar, 0, -dp(40))
                     }.onFailure { Log.e(TAG, "MCPOPUP show failed", it) }
+                    popup.contentView?.post { dumpTree(popup.contentView, "MCPOPUP") }
                 }
             }
+        }
+    }
+
+    private fun dumpTree(view: View, tag: String, depth: Int = 0) {
+        Log.i(TAG, "$tag ${"  ".repeat(depth)}${view.javaClass.name} ${view.width}x${view.height} vis=${view.visibility}")
+        if (depth >= 5) return
+        if (view is android.view.ViewGroup) {
+            for (i in 0 until view.childCount) dumpTree(view.getChildAt(i), tag, depth + 1)
         }
     }
 
