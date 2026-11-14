@@ -23,10 +23,28 @@ object Hidden {
     }
 
     private val getViewRootImpl by lazy { View::class.java.getMethod("getViewRootImpl") }
+    private val inputFeaturesField by lazy {
+        android.view.WindowManager.LayoutParams::class.java.getField("inputFeatures")
+    }
     private val setSkipScreenshot by lazy {
         SurfaceControl.Transaction::class.java.getMethod(
             "setSkipScreenshot", SurfaceControl::class.java, Boolean::class.javaPrimitiveType,
         )
+    }
+
+    /**
+     * `WindowManager.LayoutParams#inputFeatures` is hidden but drives
+     * InputConfigAdapter: INPUT_FEATURE_INTERCEPTS_STYLUS (0x40000000) makes a
+     * window the stylus target while fingers fall through, INPUT_FEATURE_SPY
+     * (4) delivers a copy of touches. Both are read straight off the window
+     * params by the window manager, with no extra permission check.
+     */
+    fun setInputFeatures(params: android.view.WindowManager.LayoutParams, features: Int): Boolean {
+        if (!unlocked) return false
+        return runCatching {
+            inputFeaturesField.setInt(params, features)
+            true
+        }.onFailure { Log.w(TAG, "setInputFeatures failed: $it") }.getOrDefault(false)
     }
 
     fun surfaceControlOf(view: View): SurfaceControl? {

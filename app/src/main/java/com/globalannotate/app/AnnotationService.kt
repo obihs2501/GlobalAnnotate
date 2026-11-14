@@ -189,10 +189,10 @@ class AnnotationService : Service(),
         val base = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
         val helperFlags = base or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
         canvasParams = overlay(MATCH, MATCH, helperFlags).apply {
-            inputFeatures = WindowManager.LayoutParams.INPUT_FEATURE_INTERCEPTS_STYLUS
+            Hidden.setInputFeatures(this, FEATURE_INTERCEPTS_STYLUS)
         }
         fingerSpyParams = overlay(MATCH, MATCH, helperFlags).apply {
-            inputFeatures = WindowManager.LayoutParams.INPUT_FEATURE_SPY
+            Hidden.setInputFeatures(this, FEATURE_SPY)
         }
         val barWidth = toolbar.contentWidthPx().coerceAtLeast(dp(360))
         toolbarParams = overlay(barWidth, dp(BAR_HEIGHT_DP), base).apply {
@@ -999,6 +999,10 @@ class AnnotationService : Service(),
         private const val CHANNEL_ID = "global_annotate"
         private const val BAR_HEIGHT_DP = 102
         private const val MAX_LONG_SCREENS = 12
+        /** `LayoutParams.INPUT_FEATURE_INTERCEPTS_STYLUS` (hidden constant). */
+        private const val FEATURE_INTERCEPTS_STYLUS = 0x40000000
+        /** `LayoutParams.INPUT_FEATURE_SPY` (hidden constant). */
+        private const val FEATURE_SPY = 4
         private const val MATCH = WindowManager.LayoutParams.MATCH_PARENT
         private const val WRAP = WindowManager.LayoutParams.WRAP_CONTENT
         private val PANEL_EASE = PathInterpolator(0f, 0f, 0.2f, 1f)
