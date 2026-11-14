@@ -53,6 +53,8 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
     private var remoteShell: MiCanvasPopupShell? = null
     /** Mi Canvas' own `penpicker_display_block` inside the shell, if it was found. */
     private var shellBlock: View? = null
+    /** One-shot log guard; must be initialised before the init block runs. */
+    private val loggedBlock = java.util.concurrent.atomic.AtomicBoolean(false)
     private var remoteSetColour: java.lang.reflect.Method? = null
     /** Guards the colour setter while a change comes from Mi Canvas itself. */
     private var remoteEcho = false
@@ -217,7 +219,6 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
         }
     }
 
-    private val loggedBlock = java.util.concurrent.atomic.AtomicBoolean(false)
     /**
      * Mi Canvas' own popup is the visible surface: its arrow, direction,
      * animation and measured geometry are exactly the reference. What is missing
