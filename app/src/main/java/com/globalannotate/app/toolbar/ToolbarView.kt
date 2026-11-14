@@ -99,7 +99,7 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
                 setOnClickListener { listener.onTool(style, centerOnScreen(this)) }
                 layoutParams = LinearLayout.LayoutParams(
                     dp(if (style == PenStyle.ERASER) LARGE_WIDTH_DP else PEN_WIDTH_DP),
-                    dp(if (style == PenStyle.ERASER) LARGE_HEIGHT_DP else PEN_HEIGHT_DP),
+                    dp(PEN_HEIGHT_DP),
                 ).apply {
                     if (style == PenStyle.toolbarOrder.first()) marginStart = dp(20)
                 }
@@ -218,19 +218,16 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
             glyph.post { stretch(glyph, selected) }
             return
         }
-        // The selected tool grows from its bottom-left corner: it can only
-        // stretch forward/upward, never push its neighbours around. 45x77dp
-        // scales to the measured 64x94dp large slot.
-        glyph.pivotX = 0f
+        // Measured on Mi Canvas' own bar: selection only elongates the tool
+        // along its axis (77.1 -> 93.8dp), anchored at the capsule floor, with
+        // the thickness untouched. Neighbours never move.
+        glyph.pivotX = glyph.width / 2f
         glyph.pivotY = glyph.height.toFloat()
-        val large = (glyph.layoutParams as ViewGroup.LayoutParams).width == dp(LARGE_WIDTH_DP)
-        val sx = if (large) 1f else 1.42f
-        val sy = if (large) 1f else 1.22f
         if (selected) {
             glyph.translationZ = 3f * density
             glyph.animate()
-                .scaleX(sx)
-                .scaleY(sy)
+                .scaleX(1f)
+                .scaleY(SELECTED_SCALE_Y)
                 .setDuration(200)
                 .setInterpolator(android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f))
                 .start()
@@ -386,9 +383,10 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         /** Measured pen slot, 44.7dp x 77dp. */
         const val PEN_WIDTH_DP = 45
         const val PEN_HEIGHT_DP = 77
-        /** Eraser / ruler use cp_brush_width_large, 63.6dp x 93.8dp on screen. */
+        /** Eraser / ruler are thicker (63.6dp) but the same 77.1dp long. */
         const val LARGE_WIDTH_DP = 64
-        const val LARGE_HEIGHT_DP = 94
+        /** Selected tool grows 16.7dp along its length: 77.1 -> 93.8dp. */
+        const val SELECTED_SCALE_Y = 93.8f / 77.1f
         const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
     }
 }

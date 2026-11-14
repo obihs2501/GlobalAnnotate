@@ -42,32 +42,30 @@ class StrokePreview @JvmOverloads constructor(
             color = if (b.style.isEraser) Color.parseColor("#D0D0D0") else b.effectiveColor,
             style = b.style,
         )
-        val padX = width * 0.08f
-        val span = width - padX * 2
-        val amp = height * 0.26f
-        val n = 96
+        val n = 48
         val base = if (b.style.isEraser) {
             b.style.toPixels(b.eraserSize, density)
         } else {
             b.style.toPixels(b.size, density)
         }
-        // One clean wave, the way Mi Canvas samples a brush: pressure rises and
-        // falls along the stroke, so the taper is visible at both ends.
+        // Mi Canvas renders its sample as a diagonal stroke across the preview,
+        // width ~= size * density, with the pen's own profile.
+        val width = (b.style.toPixels(b.size, density) * 0.9f).coerceAtMost(height * 0.55f)
+        val x0 = width * 0.22f
+        val x1 = this.width - width * 0.22f
+        val y0 = height * 0.72f
+        val y1 = height * 0.28f
         for (i in 0..n) {
             val t = i / n.toFloat()
-            val pressure = (0.2f + 0.8f * sin(Math.PI * t).toFloat()).coerceIn(0.08f, 1f)
-            val x = padX + span * t
-            val y = height / 2f - amp * sin((t * 1.6f) * Math.PI.toFloat() - 0.75f)
+            val x = x0 + (x1 - x0) * t
+            val y = y0 + (y1 - y0) * t
+            val pressure = (0.85f - 0.25f * kotlin.math.abs(t - 0.5f) * 2f).coerceIn(0.5f, 1f)
             val w = when (b.style) {
-                com.globalannotate.app.model.PenStyle.BALLPOINT -> base * 1.05f
                 com.globalannotate.app.model.PenStyle.INK_PEN ->
-                    base * (0.5f + 1.5f * pressure) * (0.9f + b.sensitivity * 0.4f)
-                com.globalannotate.app.model.PenStyle.MARKER,
-                com.globalannotate.app.model.PenStyle.HIGHLIGHTER -> base * 1.2f
-                com.globalannotate.app.model.PenStyle.WATER_COLOR -> base * (1.0f + 0.3f * pressure)
-                else -> base * (0.9f + 0.25f * pressure)
+                    width * (0.55f + 0.45f * kotlin.math.sin(Math.PI * t).toFloat())
+                else -> width
             }
-            stroke.points.add(InkPoint(x, y, w.coerceAtLeast(1f), 0.3f))
+            stroke.points.add(InkPoint(x, y, w.coerceAtLeast(1f), 0.6f))
         }
         return stroke
     }

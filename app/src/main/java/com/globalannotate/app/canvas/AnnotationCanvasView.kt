@@ -41,6 +41,8 @@ class AnnotationCanvasView(context: Context) : View(context) {
     private var ink: Bitmap? = null
     private var spare: Bitmap? = null
     private var inkCanvas: Canvas? = null
+    /** Ink before the active stroke, so the stroke is repainted whole. */
+    private var baseInk: Bitmap? = null
 
     var brush: BrushConfig = BrushConfig()
     var allowFinger: Boolean = false
@@ -168,7 +170,12 @@ class AnnotationCanvasView(context: Context) : View(context) {
         lastMoveTime = downTime
         anchorX = x
         anchorY = y
-        drawTail(stroke)
+        // Snapshot once, then repaint the whole stroke on every sample. Drawing
+        // only the newest segments left visible seams whose edges pulled the
+        // line sideways.
+        baseInk?.recycle()
+        baseInk = ink?.copy(Bitmap.Config.ARGB_8888, false)
+        redrawActive()
         invalidate()
         onStateChanged?.invoke()
     }
@@ -185,7 +192,7 @@ class AnnotationCanvasView(context: Context) : View(context) {
             anchorY = y
             lastMoveTime = now
         }
-        drawTail(stroke)
+        redrawActive()
         invalidate()
     }
 
@@ -202,22 +209,20 @@ class AnnotationCanvasView(context: Context) : View(context) {
                 finished.snapped = "shape"
             }
         }
+        baseInk?.recycle()
+        baseInk = null
         rebuildInk()
         onStateChanged?.invoke()
     }
 
-    private fun drawTail(stroke: InkStroke) {
+    /** Repaint [active] on top of the pre-stroke snapshot. */
+    private fun redrawActive() {
+        val stroke = active ?: return
         val canvas = inkCanvas ?: return
-        val pts = stroke.points
-        if (pts.isEmpty()) return
-        if (pts.size == 1) {
-            engine.drawTail(canvas, stroke, scrollOffset)
-        } else {
-            // Repaint the last few segments so joins stay smooth.
-            val from = max(0, pts.size - 4)
-            val part = InkStroke(pts.subList(from, pts.size).toMutableList(), stroke.color, stroke.style)
-            engine.draw(canvas, part, scrollOffset)
-        }
+        ensureInk()
+        canvas.drawColor(Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+        baseInk?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+        engine.draw(canvas, stroke, scrollOffset)
     }
 
     private fun rebuildInk() {
