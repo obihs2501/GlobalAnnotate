@@ -78,7 +78,13 @@ object LongCapture {
         if (accumulated == null) return next.copy(Bitmap.Config.ARGB_8888, false)
         val add = (next.height - overlap).coerceAtLeast(1)
         val newHeight = minOf(accumulated.height + add, MAX_HEIGHT)
-        if (newHeight <= accumulated.height) return accumulated
+        if (newHeight <= accumulated.height) {
+            // The caller hands ownership of [next] to append(); at MAX_HEIGHT the
+            // stitch is skipped, so the frame has to be released here or every
+            // further capture leaks a full-screen bitmap.
+            next.recycle()
+            return accumulated
+        }
         val result = Bitmap.createBitmap(next.width, newHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(result)
         canvas.drawColor(Color.TRANSPARENT)

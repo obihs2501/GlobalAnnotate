@@ -167,8 +167,18 @@ class HelperClient(
     }
 
     fun stop() {
+        val process = this.process ?: return
         send(HelperProtocol.CMD_QUIT)
-        runCatching { process?.destroy() }
+        // Destroying the process straight after QUIT killed the helper before its
+        // cleanup() ran, which left the global maximum_obscuring_opacity_for_touch
+        // pinned at 1.0. Wait for it to exit on a worker thread, then force it.
+        Thread({
+            runCatching {
+                if (!process.waitFor(600, java.util.concurrent.TimeUnit.MILLISECONDS)) {
+                    process.destroy()
+                }
+            }
+        }, "ga-helper-stop").start()
     }
 
     fun isRunning(): Boolean = running.get()

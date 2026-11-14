@@ -35,6 +35,41 @@ object McBridge {
     /** `Iiliill()` resets the gradient geometry after colours change. */
     fun refresh(view: View): Boolean = invoke(view, findByName(view, "Iiliill"), null)
 
+    /**
+     * The colour board exposes plain `setColor(int)` / `getCurrentColor()`, but
+     * the class lives in another APK whose method table is obfuscated per build,
+     * so both directions also work by signature scan. Without the scan a renamed
+     * getter left the board showing one colour and the ink another.
+     */
+    fun setBoardColour(view: View, colour: Int): Boolean {
+        val type = Int::class.javaPrimitiveType!!
+        return invoke(view, findByName(view, "setColor", type) ?: findSetter(view, type), colour)
+    }
+
+    fun boardColour(view: View): Int? {
+        val method = findByName(view, "getCurrentColor") ?: findGetter(view) ?: return null
+        return runCatching {
+            method.isAccessible = true
+            (method.invoke(view) as Number).toInt()
+        }.onFailure { Log.w(TAG, "read colour failed: $it") }.getOrNull()
+    }
+
+    private fun findGetter(view: View): Method? {
+        var cls: Class<*>? = view.javaClass
+        while (cls != null && cls != android.view.View::class.java) {
+            for (m in cls.declaredMethods) {
+                if (m.parameterCount != 0) continue
+                if (m.returnType != Int::class.javaPrimitiveType) continue
+                if (m.isSynthetic) continue
+                if (m.name in EXCLUDED_GETTERS) continue
+                Log.i(TAG, "colour getter by scan: ${cls.simpleName}.${m.name}")
+                return m
+            }
+            cls = cls.superclass
+        }
+        return null
+    }
+
     private fun findSetter(view: View, type: Class<*>): Method? {
         val exact = findByName(view, SETTER, type)
         if (exact != null) return exact
@@ -81,5 +116,16 @@ object McBridge {
         "onDraw", "onMeasure", "onTouchEvent", "onSizeChanged", "setProgress", "setMax",
         "setMin", "setOnSeekBarChangeListener", "setBackground", "setAlpha", "setEnabled",
         "onInitializeAccessibilityNodeInfo", "dispatchTouchEvent", "onLayout",
+    )
+    /** Platform `View` getters that must never be mistaken for a colour getter. */
+    private val EXCLUDED_GETTERS = setOf(
+        "getWidth", "getHeight", "getMeasuredWidth", "getMeasuredHeight", "getBaseline",
+        "getVisibility", "getMinimumWidth", "getMinimumHeight", "getPaddingLeft",
+        "getPaddingTop", "getPaddingRight", "getPaddingBottom", "getPaddingStart",
+        "getPaddingEnd", "getLayerType", "getLabelFor", "getAccessibilityLiveRegion",
+        "getImportantForAccessibility", "getDrawingCacheBackgroundColor",
+        "getOutlineAmbientShadowColor", "getOutlineSpotShadowColor", "getTextAlignment",
+        "getHorizontalFadingEdgeLength", "getVerticalFadingEdgeLength", "getNextFocusLeftId",
+        "getNextFocusRightId", "getNextFocusUpId", "getNextFocusDownId",
     )
 }

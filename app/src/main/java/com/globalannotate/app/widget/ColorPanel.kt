@@ -161,14 +161,15 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
     }
 
     private fun setBoardColor(c: Int) {
-        mcBoard?.let { MiCanvasUi.call(it, "setColor", c) }
+        // Both directions go through the bridge: the class comes from Mi Canvas'
+        // APK, so a renamed member must still be found by signature.
+        mcBoard?.let { McBridge.setBoardColour(it, c) }
         oursBoard?.setColor(c)
     }
 
     private fun readBoard() {
         val view = mcBoard ?: return
-        val picked = runCatching { view.javaClass.getMethod("getCurrentColor").invoke(view) as Int }
-            .getOrNull() ?: return
+        val picked = McBridge.boardColour(view) ?: return
         if ((picked and 0xFFFFFF) == (color and 0xFFFFFF)) return
         Color.colorToHSV(picked, hsv)
         applyColor(picked)

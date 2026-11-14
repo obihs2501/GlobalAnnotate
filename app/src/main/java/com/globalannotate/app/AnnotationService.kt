@@ -99,6 +99,8 @@ class AnnotationService : Service(),
     private var autoMinimize = true
     private var fingerDraw = false
     private var openPanel: View? = null
+    /** Guards the delayed end action of a panel close animation. */
+    private var panelEpoch = 0
 
     private var screenWidth = 0
     private var screenHeight = 0
@@ -126,18 +128,21 @@ class AnnotationService : Service(),
         Hidden.unlocked
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
-        val bounds = windowManager.maximumWindowMetrics.bounds
-        screenWidth = bounds.width()
-        screenHeight = bounds.height()
+        refreshScreenSize()
         penTip.set(screenWidth / 2f, screenHeight / 2f)
 
         canvas = AnnotationCanvasView(this).apply {
             onStateChanged = { refreshToolbar() }
             onPenDown = { if (autoMinimize) collapseBar() }
         }
-        // The window is declared as a stylus interceptor (see canvasParams), so
-        // it receives the pen directly and never sees a finger.
+        // In the normal mode the helper's trusted surface owns the pen and this
+        // window is NOT_TOUCHABLE, so touches only arrive here in the fallback
+        // mode or when the user asked a finger to paint. allowFinger carries
+        // that choice down to the canvas.
         canvas.setOnTouchListener { _, event ->
+            if (!canvas.allowFinger && event.getToolType(0) == MotionEvent.TOOL_TYPE_FINGER) {
+                return@setOnTouchListener false
+            }
             if (event.actionMasked == MotionEvent.ACTION_DOWN) closePanels()
             canvas.injectStylusEvent(event)
             true
@@ -217,14 +222,17 @@ class AnnotationService : Service(),
         windowManager.addView(popupHost, popupParams)
         windowManager.addView(palette, paletteParams)
         for (view in listOf(canvas, toolbar, orb, popupHost, palette)) {
-            Hidden.setSkipScreenshot(view, true)
+            excludeFromCapture(view)
         }
 
         restoreBrush()
         restoreGestures()
         gesturePanel.actions = gestureMap
         toolbar.update(canvas.brush, false, false)
-        setActive(false)
+        // A START_STICKY restart arrives with a null intent and no window state;
+        // start from an explicit idle state instead of trusting setActive()'s
+        // "nothing changed" guard.
+        enterIdle()
         Session.service = this
         Session.canvas = canvas
         com.globalannotate.app.mc.MiCanvasUi.init(this)
@@ -249,6 +257,10 @@ class AnnotationService : Service(),
                 helperReady = flags
                 Log.i(TAG, "helper ready flags=$flags")
                 applyInputMode()
+                // Root access can arrive after activation; until now the exclusion
+                // rects were computed while the helper did not exist yet, so a pen
+                // tap on the toolbar painted a stroke instead of pressing a button.
+                updateExclusion()
                 if (active) {
                     helper?.setOpacityLifted(true)
                 }
@@ -285,11 +297,16 @@ class AnnotationService : Service(),
      */
     private fun applyInputMode() {
         val intercept = helperReady and HelperProtocol.READY_INTERCEPT != 0
+        // With the helper intercepting the pen the window stays NOT_TOUCHABLE so
+        // a finger keeps scrolling the app underneath. "用手指涂画" flips exactly
+        // that: the window becomes touchable and the finger paints instead.
+        val touchable = !intercept || fingerDraw
         val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-            (if (intercept) WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE else 0)
+            (if (touchable) 0 else WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
         canvasParams.flags = flags
         canvasParams.alpha = 1f
+        canvas.allowFinger = touchable
         if (canvas.isAttachedToWindow) {
             runCatching { windowManager.updateViewLayout(canvas, canvasParams) }
         }
@@ -317,6 +334,9 @@ class AnnotationService : Service(),
     }
 
     private fun dispatchFinger(event: MotionEvent) {
+        // The finger is painting on the canvas itself now, so the spy's
+        // scroll-follow would fight the stroke it is producing.
+        if (fingerDraw) return
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 fingerPointerDown = true
@@ -409,6 +429,47 @@ class AnnotationService : Service(),
             helper?.setOpacityLifted(false)
         }
         refreshToolbar()
+        updateExclusion()
+    }
+
+    /**
+     * The idle state a fresh service starts in: every overlay hidden and the
+     * helper not intercepting. onCreate calls this directly because setActive()
+     * returns early when the requested value already matches, which left a
+     * START_STICKY restart with a visible, uncollapsible toolbar.
+     */
+    private fun enterIdle() {
+        active = false
+        Session.active = false
+        toolbarVisible = false
+        canvas.visibility = View.GONE
+        orb.visibility = View.GONE
+        toolbar.visibility = View.GONE
+        palette.hide()
+        closePanels(animate = false)
+        helper?.setIntercept(false)
+        helper?.setOpacityLifted(false)
+        refreshToolbar()
+        updateExclusion()
+    }
+
+    /** Bounds change with the rotation; everything that clamps against them re-reads. */
+    private fun refreshScreenSize() {
+        val bounds = windowManager.maximumWindowMetrics.bounds
+        screenWidth = bounds.width()
+        screenHeight = bounds.height()
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        refreshScreenSize()
+        // Keep the bar and the ball on screen: the saved position was clamped
+        // against the bounds of the previous orientation.
+        toolbarParams.x = toolbarParams.x.coerceIn(0, (screenWidth - toolbarParams.width).coerceAtLeast(0))
+        toolbarParams.y = toolbarParams.y.coerceIn(0, (screenHeight - toolbarParams.height).coerceAtLeast(0))
+        if (toolbar.isAttachedToWindow) {
+            runCatching { windowManager.updateViewLayout(toolbar, toolbarParams) }
+        }
         updateExclusion()
     }
 
@@ -616,6 +677,9 @@ class AnnotationService : Service(),
         val already = openPanel === panel && popupHost.visibility == View.VISIBLE
         closePanels(animate = false)
         if (already) return
+        // A close animation may still be in flight without an openPanel (it was
+        // cleared on close); invalidate its end action before showing again.
+        panelEpoch++
         val lp = panel.layoutParams as FrameLayout.LayoutParams
         lp.width = widthPx
         measurePanel(panel, widthPx)
@@ -661,14 +725,20 @@ class AnnotationService : Service(),
     private fun closePanels(animate: Boolean = true) {
         val panel = openPanel ?: return
         openPanel = null
+        // Bumping the epoch invalidates the end action of any close animation
+        // already in flight: it used to fire 150ms later and hide a panel that
+        // had just been reopened.
+        val epoch = ++panelEpoch
         if (animate) {
             // Exit: scale 1.0 -> 0.6 and alpha -> 0, both 150ms, Accelerate(2).
             panel.animate().scaleX(0.6f).scaleY(0.6f)
                 .setDuration(150)
                 .setInterpolator(android.view.animation.AccelerateInterpolator(2f))
                 .withEndAction {
-                    panel.visibility = View.GONE
-                    popupHost.visibility = View.GONE
+                    if (epoch == panelEpoch) {
+                        panel.visibility = View.GONE
+                        popupHost.visibility = View.GONE
+                    }
                 }.start()
             panel.animate().alpha(0f).setDuration(150).start()
         } else {
@@ -679,7 +749,14 @@ class AnnotationService : Service(),
         updateExclusion()
     }
 
-    /** Tell the helper which screen rects must keep their normal input routing. */
+    /**
+     * Tell the helper which screen rects must keep their normal input routing.
+     *
+     * The helper's gesture-monitor surface lives in the display's natural frame,
+     * so the rects must be rotated into it — for every rotation, not only 90°,
+     * or the toolbar swallows the pen in the other orientations. The bounds are
+     * re-read here because they change with the rotation.
+     */
     private fun updateExclusion() {
         val client = helper ?: return
         if (helperReady and HelperProtocol.READY_INTERCEPT == 0) return
@@ -693,15 +770,20 @@ class AnnotationService : Service(),
         add(toolbar, toolbarVisible)
         add(orb, active)
         openPanel?.let { add(it, true) }
-        // The helper's gesture-monitor surface lives in the display's natural
-        // (portrait) frame, so the rectangles must be rotated before use.
-        val rotation = (getSystemService(WINDOW_SERVICE) as WindowManager)
-            .defaultDisplay?.rotation ?: android.view.Surface.ROTATION_0
+        val wm = getSystemService(WINDOW_SERVICE) as WindowManager
+        val bounds = wm.maximumWindowMetrics.bounds
+        val w = bounds.width()
+        val h = bounds.height()
+        val rotation = wm.defaultDisplay?.rotation ?: android.view.Surface.ROTATION_0
         val natural = rects.map { r ->
-            if (rotation == android.view.Surface.ROTATION_90) {
-                Rect(screenHeight - r.bottom, r.left, screenHeight - r.top, r.right)
-            } else {
-                r
+            when (rotation) {
+                android.view.Surface.ROTATION_90 ->
+                    Rect(h - r.bottom, r.left, h - r.top, r.right)
+                android.view.Surface.ROTATION_180 ->
+                    Rect(w - r.right, h - r.bottom, w - r.left, h - r.top)
+                android.view.Surface.ROTATION_270 ->
+                    Rect(r.top, w - r.right, r.bottom, w - r.left)
+                else -> r
             }
         }
         client.setExcludedRegion(natural)
@@ -809,32 +891,87 @@ class AnnotationService : Service(),
         }
     }
 
-    private fun exportPng() {
+    /**
+     * Runs one capture-backed job at a time. `busyExporting` used to be cleared
+     * only on the success path, so a failed capture left it stuck and every
+     * later export silently did nothing.
+     */
+    private fun launchExclusive(block: suspend () -> Unit) {
         if (busyExporting) return
         busyExporting = true
-        withBackground { background ->
-            val scaled = Bitmap.createScaledBitmap(background, canvas.width, canvas.height, true)
-            background.recycle()
+        scope.launch {
+            try {
+                block()
+            } catch (error: Throwable) {
+                Log.w(TAG, "export failed", error)
+                toast(getString(R.string.export_failed))
+            } finally {
+                busyExporting = false
+            }
+        }
+    }
+
+    private suspend fun captureBackground(): Bitmap? {
+        val bitmap = withContext(Dispatchers.IO) { Exporter.captureScreenRoot() }
+        if (bitmap == null) {
+            toast("截图失败：${Exporter.lastCaptureError ?: "需要 root 授权"}")
+        }
+        return bitmap
+    }
+
+    /**
+     * `Bitmap.createScaledBitmap` hands back the source itself when the size
+     * already matches; recycling that left `canvas.render` drawing a recycled
+     * bitmap, which exported blank or crashed.
+     */
+    private fun scaledToCanvas(background: Bitmap): Bitmap =
+        if (background.width == canvas.width && background.height == canvas.height) {
+            background
+        } else {
+            Bitmap.createScaledBitmap(background, canvas.width, canvas.height, true)
+        }
+
+    /**
+     * `setSkipScreenshot` needs a live SurfaceControl, which does not exist right
+     * after addView(); the one-off attempt always failed and was never retried,
+     * so the overlays stayed inside root screenshots (double ink, eyedropper
+     * sampling the UI instead of the page).
+     */
+    private fun excludeFromCapture(view: View, retries: Int = 12) {
+        if (Hidden.setSkipScreenshot(view, true)) return
+        if (retries <= 0) {
+            Log.w(TAG, "skip-screenshot never applied: ${view.javaClass.simpleName}")
+            return
+        }
+        view.postDelayed({ excludeFromCapture(view, retries - 1) }, 80)
+    }
+
+    private fun exportPng() {
+        launchExclusive {
+            val background = captureBackground() ?: return@launchExclusive
+            val scaled = scaledToCanvas(background)
             val result = canvas.render(background = scaled)
-            scaled.recycle()
-            val name = withContext(Dispatchers.IO) { Exporter.savePng(this@AnnotationService, result) }
+            if (scaled !== background) scaled.recycle()
+            background.recycle()
+            val name = withContext(Dispatchers.IO) {
+                Exporter.savePng(this@AnnotationService, result)
+            }
             result.recycle()
-            busyExporting = false
             toast(if (name != null) getString(R.string.export_ok, name) else getString(R.string.export_failed))
         }
     }
 
     private fun exportPdf() {
-        if (busyExporting) return
-        busyExporting = true
-        withBackground { background ->
-            val scaled = Bitmap.createScaledBitmap(background, canvas.width, canvas.height, true)
-            background.recycle()
+        launchExclusive {
+            val background = captureBackground() ?: return@launchExclusive
+            val scaled = scaledToCanvas(background)
             val result = canvas.render(background = scaled)
-            scaled.recycle()
-            val name = withContext(Dispatchers.IO) { Exporter.savePdf(this@AnnotationService, result) }
+            if (scaled !== background) scaled.recycle()
+            background.recycle()
+            val name = withContext(Dispatchers.IO) {
+                Exporter.savePdf(this@AnnotationService, result)
+            }
             result.recycle()
-            busyExporting = false
             toast(if (name != null) getString(R.string.export_ok, name) else getString(R.string.export_failed))
         }
     }
@@ -853,7 +990,6 @@ class AnnotationService : Service(),
         busyExporting = true
         toast("正在滚动截取…")
         scope.launch {
-            val frames = ArrayList<Bitmap>()
             var accumulated: Bitmap? = null
             try {
                 val first = captureComposite()
@@ -861,9 +997,8 @@ class AnnotationService : Service(),
                     toast("截图失败：${Exporter.lastCaptureError ?: "需要 root 授权"}")
                     return@launch
                 }
-                frames.add(first)
                 accumulated = first.copy(Bitmap.Config.ARGB_8888, false)
-                var lastFingerDelta = 0
+                first.recycle()
                 var stagnant = 0
                 for (i in 0 until MAX_LONG_SCREENS - 1) {
                     val before = canvas.scrollOffset
@@ -879,27 +1014,42 @@ class AnnotationService : Service(),
                         if (stagnant >= 2) break
                         continue
                     }
-                    val overlap = LongCapture.findOverlap(accumulated!!, frame)
+                    val current = accumulated ?: break
+                    val overlap = LongCapture.findOverlap(current, frame)
                     if (overlap < 40) {
                         frame.recycle()
                         break
                     }
-                    accumulated = LongCapture.append(accumulated!!, frame, overlap)
+                    val heightBefore = current.height
+                    val grown = LongCapture.append(current, frame, overlap)
+                    accumulated = grown
+                    // append() recycles both inputs; at MAX_HEIGHT it returns the
+                    // accumulated bitmap unchanged, so stop instead of capturing
+                    // frames that can never be stitched.
+                    if (grown.height <= heightBefore) break
                 }
                 val result = accumulated
                 if (result == null || result.height <= screenHeight + 4) {
+                    result?.recycle()
+                    accumulated = null
                     toast("页面没有可滚动的内容")
                     return@launch
                 }
-                val pngName = withContext(Dispatchers.IO) { Exporter.savePng(this@AnnotationService, result) }
-                val pdfName = withContext(Dispatchers.IO) { Exporter.savePdf(this@AnnotationService, result) }
+                val pngName = withContext(Dispatchers.IO) {
+                    Exporter.savePng(this@AnnotationService, result)
+                }
+                withContext(Dispatchers.IO) { Exporter.savePdf(this@AnnotationService, result) }
                 result.recycle()
+                accumulated = null
                 toast(
                     if (pngName != null) "长图已保存（${pngName}）+ PDF" else getString(R.string.export_failed),
                 )
+            } catch (error: Throwable) {
+                Log.w(TAG, "long capture failed", error)
+                toast(getString(R.string.export_failed))
             } finally {
                 busyExporting = false
-                frames.forEach { if (!it.isRecycled) it.recycle() }
+                accumulated?.let { if (!it.isRecycled) it.recycle() }
             }
         }
     }

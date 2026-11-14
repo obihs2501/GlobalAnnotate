@@ -11,6 +11,8 @@ import java.nio.ByteOrder
 
 object Exporter {
 
+    /** How far into the stream a `su` banner may push the raw header. */
+    private const val RAW_HEADER_SCAN = 64
     private const val PNG_DIR = "Pictures/GlobalAnnotate"
     private const val PDF_DIR = "Documents/GlobalAnnotate"
 
@@ -108,18 +110,13 @@ object Exporter {
         return null
     }
 
+    /** `screencap` raw: width, height, format, then RGBA_8888 pixels. */
     private fun rawDecode(bytes: ByteArray): Bitmap? {
-        if (bytes.size < 16) return null
-        val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-        val w = buf.getInt(0)
-        val h = buf.getInt(4)
-        if (w <= 0 || h <= 0 || w > 8192 || h > 20000) return null
-        val expected = w.toLong() * h * 4
-        val header = (bytes.size - expected).toInt()
-        if (header < 12 || header > 32) return null
-        val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        val pixels = IntArray(w * h)
-        val src = ByteBuffer.wrap(bytes, header, w * h * 4).order(ByteOrder.LITTLE_ENDIAN)
+        val frame = findRawFrame(bytes) ?: return null
+        val bitmap = Bitmap.createBitmap(frame.width, frame.height, Bitmap.Config.ARGB_8888)
+        val pixels = IntArray(frame.width * frame.height)
+        val src = ByteBuffer.wrap(bytes, frame.pixelsAt, frame.width * frame.height * 4)
+            .order(ByteOrder.LITTLE_ENDIAN)
         src.asIntBuffer().get(pixels)
         // screencap raw is RGBA_8888; Bitmap wants native ARGB ints.
         for (i in pixels.indices) {
@@ -128,8 +125,31 @@ object Exporter {
                 ((v and 0x00FF0000) ushr 16) or
                 ((v and 0x000000FF) shl 16)
         }
-        bitmap.setPixels(pixels, 0, w, 0, 0, w, h)
+        bitmap.setPixels(pixels, 0, frame.width, 0, 0, frame.width, frame.height)
         return bitmap
+    }
+
+    private class RawFrame(val width: Int, val height: Int, val pixelsAt: Int)
+
+    /**
+     * Locates the raw header instead of assuming it starts at offset 0: some `su`
+     * builds print a banner on stdout, which shifted the width/height and made
+     * every capture fail. The header is the offset whose dimensions add up to the
+     * byte count exactly.
+     */
+    private fun findRawFrame(bytes: ByteArray): RawFrame? {
+        if (bytes.size < 16) return null
+        val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
+        for (offset in 0..minOf(RAW_HEADER_SCAN, bytes.size - 16)) {
+            val w = buf.getInt(offset)
+            val h = buf.getInt(offset + 4)
+            if (w <= 0 || h <= 0 || w > 8192 || h > 20000) continue
+            val pixelsAt = (bytes.size.toLong() - w.toLong() * h * 4).toInt()
+            // 12 bytes of header, plus whatever banner the shell printed first.
+            if (pixelsAt < offset + 12 || pixelsAt > offset + 12 + RAW_HEADER_SCAN) continue
+            return RawFrame(w, h, pixelsAt)
+        }
+        return null
     }
 
     private fun pngDecode(bytes: ByteArray): Bitmap? {
