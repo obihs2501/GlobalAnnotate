@@ -803,6 +803,7 @@ class AnnotationService : Service(),
                 else -> r
             }
         }
+        Log.i(TAG, "exclusion rot=$rotation screen=${w}x$h rects=$natural")
         client.setExcludedRegion(natural)
     }
 
