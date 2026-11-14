@@ -167,15 +167,14 @@ class AnnotationService : Service(),
 
         toolbar = ToolbarView(this, this).apply { dragListener = this@AnnotationService }
         orb = BrushGlyph(this).apply {
-            // Measured on Mi Canvas 4.1.8 on this tablet (screencap, bottom-right
-            // ball): disc 248px = 90dp, brush artwork 198px = 72dp — i.e. the
-            // brush is ~79% of the disc and centred, which is exactly its own
-            // `creation_brush_head_height_1_2` (70.8dp) head height. Filling the
-            // disc was wrong: the official ball keeps that margin.
+            // Measured against Mi Canvas 4.1.8 on this tablet: its ball is
+            // 248px (90dp) and the pen glyph inside it is ~186px tall, i.e. 76%
+            // of the disc. Our artwork draws ~92% of the requested length, so
+            // 73.5dp yields the same visible height instead of the 179px that
+            // 70.8dp produced.
             artOffsetDp = 0f
             centreVertically = true
-            artLengthDp = MiCanvasUi.dimension("creation_brush_head_height_1_2")
-                .takeIf { it > 0 }?.let { it / resources.displayMetrics.density } ?: 70.8f
+            artLengthDp = 73.5f
             artScale = 1f
             val capsule = androidx.core.content.ContextCompat.getColor(
                 this@AnnotationService, R.color.penpicker_background_color,
