@@ -145,8 +145,21 @@ class AnnotationService : Service(),
 
         toolbar = ToolbarView(this, this).apply { dragListener = this@AnnotationService }
         orb = BrushGlyph(this).apply {
-            setBackgroundResource(R.drawable.bg_orb)
-            elevation = dp(6).toFloat()
+            // Mi Canvas' minimized ball: a 96dp disc with a 73dp pen, not the
+            // 56dp satchel we used before.
+            artOffsetDp = 0f
+            artLengthDp = 73f
+            val capsule = androidx.core.content.ContextCompat.getColor(
+                this@AnnotationService, R.color.penpicker_background_color,
+            )
+            val night = 0.299f * android.graphics.Color.red(capsule) +
+                0.587f * android.graphics.Color.green(capsule) +
+                0.114f * android.graphics.Color.blue(capsule) < 128f
+            background = android.graphics.drawable.GradientDrawable().apply {
+                shape = android.graphics.drawable.GradientDrawable.OVAL
+                setColor(if (night) 0xFF242424.toInt() else 0xFFF2F2F2.toInt())
+            }
+            elevation = dp(8).toFloat()
             setOnClickListener { expandBar() }
         }
         popupHost = FrameLayout(this)
@@ -187,10 +200,10 @@ class AnnotationService : Service(),
             x = prefs.getInt(KEY_BAR_X, -1).let { if (it >= 0) it else (screenWidth - barWidth) / 2 }
             y = prefs.getInt(KEY_BAR_Y, -1).let { if (it >= 0) it else screenHeight - dp(BAR_HEIGHT_DP) - dp(30) }
         }
-        orbParams = overlay(dp(56), dp(56), base).apply {
+        orbParams = overlay(dp(96), dp(96), base).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = screenWidth - dp(24 + 56)
-            y = screenHeight - dp(24 + 56)
+            x = screenWidth - dp(16 + 96)
+            y = screenHeight - dp(16 + 96)
         }
         popupParams = overlay(MATCH, MATCH, base)
         paletteParams = overlay(MATCH, MATCH, helperFlags)
