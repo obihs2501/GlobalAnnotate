@@ -867,26 +867,17 @@ class AnnotationService : Service(),
                     "com.xiaomi.penpicker.popup.SelectAlphaView",
                 )) com.globalannotate.app.mc.MiCanvasUi.dumpMethods(name)
             }
-            // Feasibility probe: host Mi Canvas' own colour popup content inside
-            // our overlay window, so its layout decides everything visible.
+            // Probe: open the colour panel the same way a tap on the bar does.
             "com.globalannotate.action.MCPOPUP" -> {
                 if (!active) setActive(true)
-                val popup = com.globalannotate.app.mc.MiCanvasUi.createColorPopup()
-                Log.i(TAG, "MCPOPUP built=$popup")
-                runCatching {
-                    val content = popup!!.contentView
-                    (content.parent as? android.view.ViewGroup)?.removeView(content)
-                    val px = com.globalannotate.app.mc.MiCanvasUi
-                        .dimension("creation_color_picker_popup_height")
-                    content.layoutParams = FrameLayout.LayoutParams(dp(338), px).apply {
-                        leftMargin = dp(40)
-                        topMargin = dp(160)
-                    }
-                    popupHost.addView(content)
-                    popupHost.visibility = View.VISIBLE
-                    // (skip-screenshot off while checking the look)
-                    content.postDelayed({ dumpTree(content, "MCPOPUP") }, 300)
-                }.onFailure { Log.e(TAG, "MCPOPUP host failed", it) }
+                expandBar()
+                showColorPanel(dp(300))
+                // Re-enable the panel in screenshots so the probe can be checked.
+                Hidden.setSkipScreenshot(popupHost, false)
+                colorPanel.postDelayed({
+                    Log.i(TAG, "MCPOPUP panel=${colorPanel.width}x${colorPanel.height}")
+                    dumpTree(colorPanel, "MCPOPUP")
+                }, 400)
             }
         }
     }
