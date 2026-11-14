@@ -68,9 +68,16 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
     private var alpha: Int = 255
     private val hsv = floatArrayOf(352f, 0.70f, 1f)
 
+    /**
+     * Guards the H/S/V state while a rail is dragged. RGB -> HSV is lossy near
+     * black/grey, so re-deriving it on every frame rewrote hue and saturation.
+     */
+    private var holdingHsv = false
+
     var color: Int = Color.parseColor("#E8464A")
         set(value) {
             field = value
+            if (holdingHsv) return
             Color.colorToHSV(value, hsv)
             if (remoteActive) {
                 // Mi Canvas' popup keeps its own state; only push real changes.
@@ -79,7 +86,6 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
                 syncViews(fromGrid = true)
             }
         }
-
     init {
         orientation = VERTICAL
         LayoutInflater.from(context).inflate(R.layout.penpicker_popup_color_picker, this, true)
@@ -120,8 +126,26 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
 
         tabs.selectedIndex = 0
         tabs.onTabSelected = { index ->
-            gridPage.visibility = if (index == 0) View.VISIBLE else View.GONE
-            sliderPage.visibility = if (index == 1) View.VISIBLE else View.GONE
+            // Mi Canvas' CustomViewPager slides between the two pages. A hard
+            // VISIBLE/GONE flip made the switch feel broken.
+            val incoming = if (index == 0) gridPage else sliderPage
+            val outgoing = if (index == 0) sliderPage else gridPage
+            val dir = if (index == 0) -1f else 1f
+            outgoing.animate().cancel()
+            outgoing.animate()
+                .alpha(0f).translationX(24f * density * -dir)
+                .setDuration(110)
+                .withEndAction { outgoing.visibility = View.GONE }
+                .start()
+            incoming.animate().cancel()
+            incoming.visibility = View.VISIBLE
+            incoming.alpha = 0f
+            incoming.translationX = 24f * density * dir
+            incoming.animate()
+                .alpha(1f).translationX(0f)
+                .setDuration(160)
+                .setInterpolator(android.view.animation.DecelerateInterpolator(1.5f))
+                .start()
         }
         gridPage.visibility = View.VISIBLE
         sliderPage.visibility = View.GONE
@@ -140,36 +164,29 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
             hsv[2] = p
             applyHsv()
         }
-        gridAlphaRail.onProgress = { p ->
-            alpha = (p * 255).toInt().coerceIn(0, 255)
-            gridAlphaValue.text = "${(p * 100).toInt()}%"
-            listener.onAlpha(alpha)
-        }
-        sliderAlphaRail.onProgress = { p ->
-            alpha = (p * 255).toInt().coerceIn(0, 255)
-            sliderAlphaValue.text = "${(p * 100).toInt()}%"
-            listener.onAlpha(alpha)
-        }
+        gridAlphaRail.onProgress = { p -> applyAlpha(p) }
+        sliderAlphaRail.onProgress = { p -> applyAlpha(p) }
 
         buildRecent()
         syncViews(fromGrid = true)
         installMiCanvasPopup()
     }
 
-    // ── Mi Canvas popup ────────────────────────────────────────────────────
 
+    /** Both opacity rails, both percentage labels and the swatch follow one drag. */
+    private fun applyAlpha(p: Float) {
+        alpha = (p * 255).toInt().coerceIn(3, 255)
+        val text = "${(p * 100).toInt()}%"
+        gridAlphaValue.text = text
+        sliderAlphaValue.text = text
+        block.color = Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
+        listener.onAlpha(alpha)
+    }
     /**
-     * Everything above is the fallback for a device without Mi Canvas installed.
-     * When its APK is present the whole popup comes from there: the miuix tab is
-     * theirs, the board is theirs, both rail pages are theirs, the block and the
-     * recent colours are theirs.
-     *
-     * Their `PopupWindow` hides the real `ArrowPopupView` — its `getContentView()`
-     * is overridden and returns only the inner content — so the arrow, the
-     * automatic direction choice and the enter/exit animation are reached through
-     * [MiCanvasPopupShell], which the service hosts in the same overlay as the
-     * anchor. Without that shell we keep the older fallback of hosting just the
-     * inner content in this view.
+     * Mi Canvas' own popup is the visible surface: its arrow, direction,
+     * animation and measured geometry are exactly the reference. What is missing
+     * is the presenter (`p452lilii.I1Iili`) that normally binds the grid/slider
+     * pages' callbacks, so we bind the opacity rails ourselves below.
      */
     private fun installMiCanvasPopup() {
         val started = System.currentTimeMillis()
@@ -178,15 +195,13 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
         remoteSetColour = runCatching {
             popup.javaClass.getMethod(MC_SET_COLOUR, Integer.TYPE)
         }.getOrNull()
-        if (remoteSetColour == null) {
-            Log.w(TAG, "setColour not found; the popup will only report changes")
-        }
         bindRemoteListener(popup)
 
         val shell = MiCanvasPopupShell.from(popup)
         if (shell != null) {
             remoteShell = shell
             remoteActive = true
+            bindShellOpacityRails(shell)
             // The straw runs our own screen picker instead of their floating one.
             findInTree(shell.root) { it.javaClass.name == MC_STRAW }?.setOnClickListener {
                 listener.onPipette()
@@ -208,9 +223,68 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
         Log.i(TAG, "Mi Canvas popup content ready in ${System.currentTimeMillis() - started} ms")
     }
 
+    /**
+     * The presenter normally calls `addOnColorChangeListener` on both page
+     * views. Without it the two opacity rails are inflated, drawable and
+     * touchable, but their changes go nowhere. Attach our own listeners by the
+     * original resource ids so dragging updates the brush alpha.
+     */
+    /**
+     * The presenter normally wires the two page views' colour callbacks. The
+     * opacity rails themselves are plain `AppCompatSeekBar`s whose internal
+     * listener forwards to that (absent) presenter, so dragging them changed
+     * nothing. Take the listener over directly: one listener per SeekBar in
+     * Android, which is fine because we own the whole colour state now.
+     */
+    private fun bindShellOpacityRails(shell: MiCanvasPopupShell) {
+        for (name in listOf("grid_alpha_seek_bar", "slider_alpha_seek_bar")) {
+            val id = MiCanvasUi.id(name)
+            if (id == 0) continue
+            val view = shell.root.findViewById<View>(id) ?: continue
+            if (view !is SeekBar) continue
+            view.max = 255
+            view.progress = alpha.coerceIn(3, 255)
+            view.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(b: SeekBar, value: Int, fromUser: Boolean) {
+                    if (!fromUser) return
+                    val next = value.coerceIn(3, 255)
+                    if (next == alpha) return
+                    alpha = next
+                    listener.onAlpha(next)
+                }
+                override fun onStartTrackingTouch(b: SeekBar) = Unit
+                override fun onStopTrackingTouch(b: SeekBar) {
+                    // Refresh Mi Canvas' own display block / other rail without
+                    // re-entering the colour listener chain.
+                    pushRemote(color)
+                }
+            })
+            Log.i(TAG, "opacity rail bound: $name")
+        }
+    }
+
+    /**
+     * `l1lII1ιιιιIl.l1IIiiι` with kind 1 is an alpha-only event and carries no
+     * HSL model. Handle it before the HSL lookup so a stray alpha callback is
+     * not silently dropped.
+     */
+    private fun readAlphaModel(model: Any): Boolean {
+        val kind = runCatching { model.javaClass.getMethod("Iiliill").invoke(model) as Int }.getOrNull()
+            ?: return false
+        if (kind != 1) return false
+        val value = runCatching {
+            model.javaClass.getMethod("I\u03b911lii").invoke(model) as Int
+        }.getOrNull() ?: return true
+        val next = value.coerceIn(3, 255)
+        if (next != alpha) {
+            alpha = next
+            listener.onAlpha(next)
+        }
+        return true
+    }
+
     /** The real arrow subtree, when Mi Canvas' popup could be taken over whole. */
     fun originalShell(): MiCanvasPopupShell? = remoteShell
-
     /**
      * Mi Canvas notifies colour changes through an interface with a single
      * method; the interface name and its method name are obfuscated, so the proxy
@@ -248,6 +322,8 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
 
     /** `l1IIiiι` carries an HSL model; `lIIIlll()` is its ARGB colour. */
     private fun readRemoteModel(model: Any) {
+        // Alpha-only events carry no HSL model; handle them first.
+        if (readAlphaModel(model)) return
         // Real names, not jadx's `mNNNNN…` placeholders: `lιIil11()` is the HSL
         // model, `lIIIlll()` its ARGB colour and `l1IIiiι()` its alpha.
         val hsl = runCatching { model.javaClass.getMethod("l\u03b9Iil11").invoke(model) }.getOrNull()
@@ -260,15 +336,21 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
             .getOrDefault(Color.alpha(argb))
             .coerceIn(3, 255)
         if ((argb and 0xFFFFFF) == (color and 0xFFFFFF) && a == alpha) return
+        // Keep the echo guard up for the WHOLE dispatch. It used to be cleared
+        // before listener.onColor(), and the service writes straight back into
+        // color, which pushed the colour into Mi Canvas again and produced a
+        // feedback loop (dragging one rail moved the others, jerky animation).
         remoteEcho = true
-        color = argb or 0xFF000000.toInt()
-        remoteEcho = false
-        alpha = a
-        listener.onColor(color)
-        listener.onAlpha(a)
-        recent.forEach { it.checked = sameRgb(it.color, color) }
+        try {
+            color = argb or 0xFF000000.toInt()
+            alpha = a
+            listener.onColor(color)
+            listener.onAlpha(a)
+            recent.forEach { it.checked = sameRgb(it.color, color) }
+        } finally {
+            remoteEcho = false
+        }
     }
-
     private fun pushRemote(argb: Int) {
         val method = remoteSetColour ?: return
         val withAlpha = (alpha shl 24) or (argb and 0xFFFFFF)
@@ -386,40 +468,62 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
     // ── state ──────────────────────────────────────────────────────────────
 
     private fun applyHsv() {
-        applyColor(Color.HSVToColor(hsv))
-    }
-
-    private fun applyColor(c: Int) {
-        color = c or 0xFF000000.toInt()
-        Color.colorToHSV(color, hsv)
+        // Keep H/S/V authoritative while a rail is dragged. Going through the
+        // colour setter here re-derived HSV from an RGB that is nearly grey at
+        // low lightness, which silently reset hue and saturation.
+        holdingHsv = true
+        color = Color.HSVToColor(hsv) or 0xFF000000.toInt()
+        holdingHsv = false
         syncViews(fromGrid = false)
         listener.onColor(color)
     }
 
+    private fun applyColor(c: Int) {
+        color = c or 0xFF000000.toInt()
+        // A colour from the board/recent swatches is an external change, so the
+        // three rails must be re-seated from it.
+        syncViews(fromGrid = true)
+        listener.onColor(color)
+    }
+
+    /**
+     * Feed the rails a *stable* hue/saturation. Mi Canvas' saturation and
+     * lightness gradients are built from the pure hue, not from the current
+     * (possibly dark or desaturated) RGB; rebuilding them from the dragged
+     * colour is what made the other two channels appear to change.
+     */
     private fun syncViews(fromGrid: Boolean) {
         setBoardColor(color)
         block.color = Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
+        val pureHue = Color.HSVToColor(floatArrayOf(hsv[0], 1f, 1f))
+        val pureSat = Color.HSVToColor(floatArrayOf(hsv[0], hsv[1].coerceAtLeast(0.001f), 1f))
         if (fromGrid) {
             hueRail.setProgress(hsv[0] / 360f)
             saturationRail.setProgress(hsv[1])
             lightnessRail.setProgress(hsv[2])
         }
-        hueRail.setBaseColor(color)
-        saturationRail.setBaseColor(color)
-        lightnessRail.setBaseColor(color)
-        saturationRail.setGradient(color)
-        lightnessRail.setGradient(color)
-        gridAlphaRail.setGradient(color)
-        sliderAlphaRail.setGradient(color)
-        gridAlphaRail.setBaseColor(color)
-        sliderAlphaRail.setBaseColor(color)
-        gridAlphaRail.setProgress(alpha / 255f)
-        sliderAlphaRail.setProgress(alpha / 255f)
+        // During a rail drag only the thumb moves. Re-seeding the gradients or
+        // pushing progress back into the other bars fights the drag and makes
+        // the animation stutter.
+        if (fromGrid) {
+            hueRail.setBaseColor(pureHue)
+            saturationRail.setBaseColor(pureHue)
+            lightnessRail.setBaseColor(pureSat)
+            saturationRail.setGradient(pureHue)
+            lightnessRail.setGradient(pureSat)
+            gridAlphaRail.setGradient(color)
+            sliderAlphaRail.setGradient(color)
+            gridAlphaRail.setBaseColor(color)
+            sliderAlphaRail.setBaseColor(color)
+        }
         gridAlphaValue.text = "${alpha * 100 / 255}%"
         sliderAlphaValue.text = "${alpha * 100 / 255}%"
+        if (fromGrid) {
+            gridAlphaRail.setProgress(alpha / 255f)
+            sliderAlphaRail.setProgress(alpha / 255f)
+        }
         recent.forEach { it.checked = sameRgb(it.color, color) }
     }
-
     private fun sameRgb(a: Int, b: Int): Boolean = (a and 0xFFFFFF) == (b and 0xFFFFFF)
 
     private fun buildRecent() {
@@ -439,10 +543,16 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
     private fun dp(v: Int): Int = (v * density).toInt()
 
     fun setAlphaValue(a: Int) {
-        alpha = a
-        if (remoteActive) pushRemote(color) else syncViews(fromGrid = false)
+        alpha = a.coerceIn(3, 255)
+        val p = alpha / 255f
+        gridAlphaRail.setProgress(p)
+        sliderAlphaRail.setProgress(p)
+        val text = "${alpha * 100 / 255}%"
+        gridAlphaValue.text = text
+        sliderAlphaValue.text = text
+        block.color = Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
+        if (remoteActive) pushRemote(color)
     }
-
     private inner class Swatch(val color: Int) : View(context) {
         var checked = false
             set(value) {

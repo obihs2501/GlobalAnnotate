@@ -109,7 +109,10 @@ open class PickerBar @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                parent?.requestDisallowInterceptTouchEvent(true)
+                // The rails live inside a ScrollView/CustomViewPager. Asking only
+                // the immediate parent was not enough: the scrolling ancestor
+                // still intercepted MOVE, so the thumb never followed the finger.
+                lockParent(true)
                 update(event.x)
                 return true
             }
@@ -120,7 +123,7 @@ open class PickerBar @JvmOverloads constructor(
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 update(event.x)
                 onCommit?.invoke(progress)
-                parent?.requestDisallowInterceptTouchEvent(false)
+                lockParent(false)
                 return true
             }
         }

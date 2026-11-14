@@ -25,6 +25,7 @@ import androidx.core.app.ServiceCompat
 import com.globalannotate.app.canvas.AnnotationCanvasView
 import com.globalannotate.app.export.LongCapture
 import com.globalannotate.app.mc.MiCanvasPopupShell
+import com.globalannotate.app.mc.MiCanvasUi
 import com.globalannotate.app.model.BrushConfig
 import com.globalannotate.app.model.EraserMode
 import com.globalannotate.app.model.PenStyle
@@ -686,15 +687,34 @@ class AnnotationService : Service(),
     private fun showColorPanel(anchorX: Int) {
         colorPanel.color = canvas.brush.color
         colorPanel.setAlphaValue(canvas.brush.alpha)
+        val (width, height) = colorPopupSize()
         val shell = colorPanel.originalShell()
         if (shell != null) {
-            showShell(shell)
+            showShell(shell, width, height)
             return
         }
-        // Mi Canvas' dimens: 360dp wide, height clamped to
-        // `creation_color_picker_popup_height` (470dp) even though the layout
-        // declares 571dp.
-        showPanel(colorPanel, anchorX, dp(360), dp(470))
+        showPanel(colorPanel, anchorX, width, height)
+    }
+
+    /**
+     * Mi Canvas' own dimens, read from its Resources at runtime rather than
+     * hard-coded: `penpicker_color_picker_popup_width` (360dp) and
+     * `pk_color_picker_popup_height` (571dp). The old 470dp came from
+     * `creation_color_picker_popup_height`, which is only the *clamp* the
+     * presenter applies when there is not enough room — forcing it unconditionally
+     * cropped off the opacity label and the recent-colour row and pushed the
+     * 13th grid column outside the surface.
+     */
+    private fun colorPopupSize(): Pair<Int, Int> {
+        val width = MiCanvasUi.dimension("penpicker_color_picker_popup_width")
+            .takeIf { it > 0 } ?: dp(360)
+        val declared = MiCanvasUi.dimension("pk_color_picker_popup_height")
+            .takeIf { it > 0 } ?: dp(571)
+        // The original presenter clamps against the display, not the toolbar:
+        // its arrow maths places the surface itself. Clamping to the bar's y
+        // (about 553dp here) would still crop the 571dp layout.
+        val available = screenHeight - dp(24)
+        return width to declared.coerceAtMost(available)
     }
 
     /**
@@ -702,7 +722,7 @@ class AnnotationService : Service(),
      * the app's overlay. The proxy supplies the window token, so the original
      * arrow maths and the proxy share one coordinate space.
      */
-    private fun showShell(shell: MiCanvasPopupShell) {
+    private fun showShell(shell: MiCanvasPopupShell, width: Int, height: Int) {
         val already = openShell === shell && shell.isShowing()
         if (already) {
             closePanels()
@@ -736,10 +756,10 @@ class AnnotationService : Service(),
                 updateExclusion()
             }
         }
-        // Mi Canvas' dimens: 360dp wide, height clamped to
-        // `creation_color_picker_popup_height` (470dp) even though the layout
-        // declares 571dp.
-        if (!shell.show(anchor, dp(360), dp(470))) {
+        // Full Mi Canvas layout height (571dp), clamped only to the space above
+        // the bar. A fixed 470dp cut off the opacity label, recent colours and
+        // the 13th grid column.
+        if (!shell.show(anchor, width, height)) {
             openShell = null
             popupHost.visibility = View.GONE
         }
