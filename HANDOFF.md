@@ -2,8 +2,37 @@
 
 ## 结论先行
 - 全局批注的输入链路已可用：root 助手创建"只接收手写笔"的受信任输入面，手指原样落到下层应用；滚动跟随、长截图导出代码已具备。
-- 界面仍未达到"搬运小米创作"的目标。颜色板/颜色滑块/属性滑块/透明度滑块已运行时加载小米创作自己的类；工具栏、tab、预览、菜单容器仍为本工程自写。
-- 下一步的正确做法是**换架构**：宿主加载小米创作 APK 的 bar/popup 类，本工程只保留输入/截屏/导出。不要再继续手写仿 UI。
+- **颜色弹窗已经是小米创作本体**（2026-11-14 下午）：宿主从 APK 实例化 `l1lII1ιιιιIl.I11IιIil`，把它的 contentView 挂进我们的悬浮窗——真 miuix tab、真色板、真两条滑块页、真颜色块、真最近颜色行。颜色/透明度双向打通（真机验证：点色板 → brush 颜色变化）。
+- 工具栏（胶囊、工具槽、orb）、笔刷弹窗、橡皮弹窗、更多菜单仍是本工程自写，是下一步要搬的对象。
+- 不要再用"手画一份更接近的仿制品"的方式改这些控件，差距只会累积。
+
+## 本轮（2026-11-14 下午）做过什么
+
+### 1. 交接清单里 13 条高危 bug 已修（`d252e17`，CI 绿）
+busyExporting 用 finally 复位；START_STICKY 用 `enterIdle()` 显式初始化；helper ready 后补 `updateExclusion()`；
+`createScaledBitmap` 同尺寸会返回原图导致释放后再渲染；`setSkipScreenshot` 改为按帧重试、弹窗类窗口在首次显示时才排除；
+"手指涂画"真正接通（`applyInputMode` 读 `fingerDraw`、`canvas.allowFinger` 赋值、手指 spy 不再抢滚动）；
+排除区按当前方向计算并在 `onConfigurationChanged` 重建；长截图提前返回释放位图、到达 MAX_HEIGHT 停止；
+`Exporter` raw 解码扫描头部偏移（su 前缀不再让整帧解码失败）；颜色板/取色走 `McBridge` 带签名兜底；
+面板关闭动画的 end action 用 epoch 守卫；`HelperClient.stop()` 先等助手退出再 destroy（避免全局不透明度开关留在 1.0）。
+
+### 2. 真机上查出的两个"排除区不生效"原因（都改了）
+- **坐标空间**：助手的触摸区就在**当前显示方向**的空间里，和 `getLocationOnScreen()` 一致。之前按 `ROTATION_90` 做旋转映射，把工具栏矩形搬到了别处，于是笔点工具栏仍在画线。实测证据：在映射后的矩形里点笔，助手不接管；在真实工具栏矩形里点，助手接管。现在直接发送原始屏幕矩形（`4896922`）。
+- **刚显示的窗口宽度为 0**：`updateExclusion()` 用 `view.width` 组矩形，而刚 `VISIBLE` 的视图在下一帧之前 width=0，工具栏根本没进排除区。新增 `updateExclusionAfterLayout()`（下一帧再算一次）。
+- 验证方法：`python _work/pen.py tap <工具栏坐标>` → logcat 应出现 `AnnotationService: tool tap BALLPOINT at …`，且工具栏不收起。
+
+### 3. 让小米创作的 UI 真正能实例化（这是本轮的关键突破）
+`MiCanvasUi` 原来只加载类，弹窗一 inflate 就崩，逐个修掉：
+- **资源没有 classLoader**：`createPackageContext()` 跨应用不带代码，`DrawableInflater` 落到 boot loader，`<drawable class="miuix…">` 全部 InflateException。现在用反射设置 `Resources.mClassLoader`（`MiuiResources` 也走这个字段）并清空 `mDrawableInflater` 缓存。
+- **`getApplicationContext()` 为 null**：跨包 Context 没有 Application，`Il1ilI1.lIil11`（浮动取色器）构造时 NPE。包装 Context 里直接返回自身。
+- **`getSystemService(LAYOUT_INFLATER_SERVICE)` 返回系统 inflater**：它的 classLoader 是那个空 dex 的包 Context，`<view class="com.xiaomi.penpicker…">` 找不到类。包装 Context 里克隆 inflater 到自身。
+
+### 4. 颜色弹窗的接口契约（照此继续搬其它弹窗）
+- 类：`l1lII1ιιιιIl.I11IιIil`（jadx 名 `p249l1lII1Il.I11IIil`），构造 `(Context)`。**jadx 改名后的 `m12345xxx` 都不是运行时名**，例如颜色模型 getter 真名是 `lιIil11()`、alpha 是 `l1IIiiι()`、颜色是 `lIIIlll()`、设置颜色是 `Iι1liιi(int)`。
+- 取 contentView 后从 PopupWindow 里摘出来挂到自己的窗口即可；不要用它的 `showAsDropDown`：它的 `setHeight` 被重写去改内容高度，`update()` 又会把 PopupWindow 高度重置成 wrap，箭头弹窗那套尺寸逻辑搬不动。
+- 颜色变化回调：接口 `l1lII1ιιιιIl.IIiIιIiii1`（单方法），用 `Proxy` 实现，把弹窗里**所有该类型字段**都换成 proxy（字段可能声明在父类）。回调参数是 `l1lII1ιιιιIl.l1IIiiι`：`lιIil11()` 取 HSL 对象，`lIIIlll()` 取 ARGB，`l1IIiiι()` 取 alpha。
+- 吸管：把 contentView 里 `com.xiaomi.penpicker.common.tools.PickerStrawTool` 的 OnClickListener 换成我们自己的截屏取色。
+- 面板高度：直接给 contentView 定高（我们的 `showPanel` 已经给了 536dp），不要走它的 `IlIll1i()`。
 
 ## 仓库 / 构建 / 设备
 - 仓库：`C:\softwares\claudecode\drawanywher\2026-09-22\GlobalAnnotate`，public `obihs2501/GlobalAnnotate`，master。
@@ -49,12 +78,14 @@
 4. 无法搬运的部分（如实告知用户）：笔迹纹理在 `libmicurve.so` + GLES 离屏渲染里，只有运行其编辑器才能获得；其编辑器画布是不透明页面，不能直接当全局悬浮层。
 
 ## 未完成/待修
-- tab 仍是仿写 `FilterSortView`（未换 miuix 原类）。
+- 颜色弹窗已换真身；**笔刷弹窗、橡皮弹窗、更多菜单、胶囊工具栏仍是自写**。下一步照第 4 节的方法搬这些：
+  笔刷/橡皮弹窗在 `penpicker_popup_pen_set` / `penpicker_popup_layout_eraser_set` 里，胶囊栏在 `l1lII1ιιιιIl` 之外的 `p452lilii.*`/`p129Iill.*`（jadx 名），需要先找到各自的可实例化入口。
 - 更多菜单文案/图标未逐项核对；"插入文本/插入形状"按用户决定隐藏。
 - 上/下滑手势：LSPosed 广播 receiver 在 system_server 里 NPE，未修（模块已默认 enabled）。
 - 微博滚动批注、长截图、PDF 未实机验证；撤销/重做、吸管未回归。
 - 预览纹理只能近似。
-- 交接时最后一次构建：CI `43547911955`（胶囊 124dp）；提交 `HEAD` 以此为基线。
+- 交接时最后一次构建：CI `43547911955`（胶囊 124dp）；本轮基线提交见 `git log`（`886b197` 之后）。
+- 排查入口：`adb shell am broadcast -a com.globalannotate.action.OPENCOLOR -n com.globalannotate.app/.GestureLaunchReceiver --es token ga-hyperos-2026` 可直接打开颜色面板（调试用，正式入口是工具栏色块）。
 
 ## 真机验证命令速查
 ```bash

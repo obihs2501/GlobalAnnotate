@@ -164,6 +164,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
      * and drive it through the two entry points it expects.
      */
     private fun installMiCanvasPopup() {
+        val started = System.currentTimeMillis()
         val popup = MiCanvasUi.createColorPopup() ?: return
         val content = popup.contentView ?: return
         (content.parent as? ViewGroup)?.removeView(content)
@@ -185,6 +186,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
             listener.onPipette()
         }
         syncViews(fromGrid = true)
+        Log.i(TAG, "Mi Canvas popup ready in ${System.currentTimeMillis() - started} ms")
     }
 
     /**
