@@ -45,12 +45,50 @@ object MiCanvasUi {
             return hostOrNull
         }
 
+    /**
+     * Gives Mi Canvas' resources a class loader that sees its own dex. Without it
+     * `DrawableInflater` falls back to the boot loader, so any drawable that names
+     * a class (`<drawable class="miuix...">`) throws InflateException — which is
+     * what stopped the colour popup from being built at all.
+     */
+    private fun attachClassLoader(res: Resources, loader: ClassLoader): String {
+        val direct = runCatching {
+            Resources::class.java.getDeclaredMethod("setClassLoader", ClassLoader::class.java)
+                .apply { isAccessible = true }
+                .invoke(res, loader)
+        }.isSuccess
+        if (direct) return "Resources.setClassLoader"
+
+        val impl = runCatching {
+            Resources::class.java.getDeclaredField("mResourcesImpl")
+                .apply { isAccessible = true }
+                .get(res)
+        }.getOrNull() ?: return "none"
+
+        var cls: Class<*>? = impl.javaClass
+        while (cls != null) {
+            val field = runCatching { cls!!.getDeclaredField("mClassLoader") }.getOrNull()
+            if (field != null) {
+                field.isAccessible = true
+                field.set(impl, loader)
+                return "ResourcesImpl.mClassLoader"
+            }
+            cls = cls.superclass
+        }
+        return "none"
+    }
+
     private fun build(): Host {
         val ctx = appContext ?: error("no app context")
         val info = ctx.packageManager.getApplicationInfo(PKG, PackageManager.GET_META_DATA)
         val apk = info.sourceDir
         val loader = DexClassLoader(apk, ctx.codeCacheDir.absolutePath, null, ctx.classLoader)
         val base = ctx.createPackageContext(PKG, 0)
+        // XML drawables inside Mi Canvas' resources name classes from its own dex
+        // (`miuix.appcompat.app.AdaptRoundButtonDrawable`), and a package context
+        // created from another app carries no class loader, so DrawableInflater
+        // fell back to the boot loader and the popup failed to inflate.
+        Log.i(TAG, "resources class loader: ${attachClassLoader(base.resources, loader)}")
         // Views resolve their resources through this wrapper; its class loader
         // must be the one that sees Mi Canvas' dex.
         val wrapped = object : ContextWrapper(base) {
