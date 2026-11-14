@@ -64,3 +64,15 @@ adb logcat -s AnnotationService GA.MiCanvas GA.McBridge
 python _work/pen.py wave 250 700 1500 --n 70 --amp 90   # 注入压感笔迹
 adb exec-out screencap -p > shot.png
 ```
+
+
+## 代码审查结论（已确认）
+
+来自低强度审查（HEAD~1..HEAD）与改造过程中的走查，均已修复：
+- `AnnotationService.kt` `onParam()`：面板传原始值（粗细 1–30、灵敏度 0–100、笔尖 1–4、不透明度 0–255），服务端却按 0–1 归一化换算 → 粗细被放大到极端值。已改为按原始单位处理。
+- `AnnotationService.kt` `cycleColor()`：`QUICK_COLORS + RECENT_COLORS` 未去重，`indexOf` 命中第一份导致换色手势循环回跳、调色盘看似不轮换。已 `distinct()`。
+- `AnnotationService.kt` `onParam(ALPHA)`：面板范围 0–255 与代码钳制 3–255 不一致，左端 1% 跳变。已把面板下限改为 3（对应 Mi Canvas `minAlphaValue`）。
+- `ToolbarView`：槽位高度等于"笔长+行程"，贴图底边贴视图边界会被裁掉抗锯齿边缘 → 已加 4dp 余量；随后胶囊改为 124dp 覆盖整行，避免自带投影形成灰晕。
+- `BrushPanel` 回退路径传归一化值、Mi Canvas 路径传原始值，两条路径语义不一致 → 已统一为原始值。
+
+完整审查（HEAD~45..HEAD）由子代理执行中；其结论返回后会追加到本节。审查范围外的已知风险：长截图拼接对动态页面（视频/广告）可能接缝错位；`MiCanvasUi` 依赖已安装的小米创作，卸载后自动回退自带控件。
