@@ -21,7 +21,7 @@ import com.globalannotate.app.widget.BrushGlyph
 import com.globalannotate.app.widget.IconButton
 import com.globalannotate.app.widget.Ripple
 import kotlin.math.abs
-import kotlin.math.min
+
 
 /**
  * The floating pen bar, rebuilt against a pixel measurement of Mi Canvas 4.1.8
@@ -217,6 +217,7 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         }
         lastSelected = selected
         swatches.forEach { it.checked = it.color == brush.color }
+        customSwatch?.checked = customColor != 0 && customColor == brush.color
         undo.enabledVisual = canUndo
         redo.enabledVisual = canRedo
     }
@@ -332,6 +333,7 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         var checked = false
             set(value) { field = value; invalidate() }
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val radius = 15.34f * density
 
         init {
             isClickable = true
@@ -341,20 +343,25 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         override fun onDraw(canvas: Canvas) {
             val cx = width / 2f
             val cy = height / 2f
-            val r = min(width, height) * 0.46f
             paint.style = Paint.Style.FILL
             paint.color = color
-            canvas.drawCircle(cx, cy, r, paint)
+            canvas.drawCircle(cx, cy, radius, paint)
+            if (checked) {
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 1.25f * density
+                paint.color = Color.WHITE
+                canvas.drawCircle(cx, cy, radius * 0.76f, paint)
+                paint.style = Paint.Style.FILL
+            }
         }
     }
 
-    /**
-     * Fourth swatch. Mi Canvas keeps the colour you last picked here — the
-     * rainbow disc is just the empty state, not a permanent decoration.
-     */
+    /** Fourth swatch. Mi Canvas keeps the colour you last picked here; otherwise it is rainbow. */
     private inner class CustomSwatch : View(context) {
         var onTap: (() -> Unit)? = null
         var color: Int = 0
+            set(value) { field = value; invalidate() }
+        var checked = false
             set(value) { field = value; invalidate() }
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val colors = intArrayOf(
@@ -374,32 +381,31 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         override fun onDraw(canvas: Canvas) {
             val cx = width / 2f
             val cy = height / 2f
-            val r = min(width, height) * 0.46f
+            val radius = 15.34f * density
             if (color != 0) {
                 paint.style = Paint.Style.FILL
                 paint.shader = null
                 paint.color = color
-                canvas.drawCircle(cx, cy, r, paint)
+                canvas.drawCircle(cx, cy, radius, paint)
+            } else {
+                paint.style = Paint.Style.FILL
+                paint.shader = null
+                paint.color = Color.WHITE
+                canvas.drawCircle(cx, cy, radius, paint)
                 paint.style = Paint.Style.STROKE
-                paint.strokeWidth = 1.2f * density
-                paint.color = Color.argb(60, 0, 0, 0)
-                canvas.drawCircle(cx, cy, r, paint)
-                return
+                paint.strokeWidth = radius * 0.60f
+                paint.shader = SweepGradient(cx, cy, colors, null)
+                canvas.drawCircle(cx, cy, radius * 0.68f, paint)
+                paint.shader = null
+                paint.style = Paint.Style.FILL
             }
-            paint.style = Paint.Style.FILL
-            paint.shader = null
-            paint.color = Color.WHITE
-            canvas.drawCircle(cx, cy, r, paint)
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = r * 0.60f
-            paint.shader = SweepGradient(cx, cy, colors, null)
-            canvas.drawCircle(cx, cy, r * 0.68f, paint)
-            paint.shader = null
-            paint.style = Paint.Style.STROKE
-            paint.strokeWidth = 1.2f * density
-            paint.color = Color.argb(60, 0, 0, 0)
-            canvas.drawCircle(cx, cy, r, paint)
-            paint.style = Paint.Style.FILL
+            if (checked) {
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 1.25f * density
+                paint.color = Color.WHITE
+                canvas.drawCircle(cx, cy, radius * 0.76f, paint)
+                paint.style = Paint.Style.FILL
+            }
         }
     }
 
