@@ -18,6 +18,7 @@ import com.globalannotate.app.penpicker.ColorPickerHueView
 import com.globalannotate.app.penpicker.ColorPickerLightnessView
 import com.globalannotate.app.penpicker.ColorPickerSaturationView
 import com.globalannotate.app.penpicker.FilterSortView
+import com.globalannotate.app.mc.MiCanvasUi
 import com.globalannotate.app.penpicker.PickerStrawTool
 
 /**
@@ -72,6 +73,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
         pager.addView(sliderPage)
 
         board = gridPage.findViewById(R.id.penpicker_color_picker_panel)
+        installMiCanvasBoard()
         gridAlpha = gridPage.findViewById(R.id.grid_alpha_seek_bar)
         gridAlphaValue = gridPage.findViewById(R.id.grid_alpha_progress)
 
@@ -125,6 +127,48 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
         showPage(0)
     }
 
+    /**
+     * Swap in Mi Canvas' own `ColorPickPanelView` when its APK is present: the
+     * 13x9 board, its rounding, border and selection ring are then literally the
+     * original code and original colour array.
+     */
+    private var mcBoard: View? = null
+
+    private fun installMiCanvasBoard() {
+        MiCanvasUi.init(context)
+        if (!MiCanvasUi.available) return
+        val mcContext = MiCanvasUi.context ?: return
+        val view = MiCanvasUi.createView(
+            "com.xiaomi.penpicker.colorpicker.ColorPickPanelView", mcContext, null,
+        ) ?: return
+        val parent = board.parent as? android.view.ViewGroup ?: return
+        val index = parent.indexOfChild(board)
+        val lp = board.layoutParams
+        parent.removeView(board)
+        view.layoutParams = lp
+        parent.addView(view, index)
+        view.setOnTouchListener { _, _ ->
+            view.post { readMcBoard() }
+            false
+        }
+        mcBoard = view
+    }
+
+    private fun applyToMcBoard(color: Int) {
+        val view = mcBoard ?: return
+        runCatching { view.javaClass.getMethod("setColor", Int::class.javaPrimitiveType).invoke(view, color) }
+    }
+
+    private fun readMcBoard() {
+        val view = mcBoard ?: return
+        val picked = runCatching {
+            view.javaClass.getMethod("getCurrentColor").invoke(view) as Int
+        }.getOrNull() ?: return
+        if ((picked and 0xFFFFFF) == (color and 0xFFFFFF)) return
+        Color.colorToHSV(picked, hsv)
+        applyColor(picked)
+    }
+
     private fun showPage(index: Int) {
         gridPage.visibility = if (index == 0) View.VISIBLE else View.GONE
         sliderPage.visibility = if (index == 1) View.VISIBLE else View.GONE
@@ -145,6 +189,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
 
     private fun syncViews(fromGrid: Boolean) {
         board.setColor(color)
+        applyToMcBoard(color)
         block.color = Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
         hue.baseColor = color
         saturation.baseColor = color

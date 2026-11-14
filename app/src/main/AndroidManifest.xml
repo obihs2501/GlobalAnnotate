@@ -11,6 +11,7 @@
     <!-- HyperOS pencil-engine service, bound without developer-center auth. -->
     <queries>
         <package android:name="com.xiaomi.touchservice" />
+        <package android:name="com.miui.creation" />
         <package android:name="com.globalannotate.xposed" />
     </queries>
 
