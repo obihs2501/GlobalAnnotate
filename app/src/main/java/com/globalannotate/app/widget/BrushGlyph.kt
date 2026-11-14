@@ -10,6 +10,7 @@ import android.graphics.RectF
 import android.view.View
 import androidx.core.content.ContextCompat
 import com.globalannotate.app.R
+import com.globalannotate.app.mc.MiCanvasUi
 import com.globalannotate.app.model.PenStyle
 
 /**
@@ -80,10 +81,25 @@ class BrushGlyph @JvmOverloads constructor(
     /** Resolve the first name that exists; the night artwork is a fallback too. */
     private fun firstBitmap(vararg names: String): Bitmap? {
         for (name in names) {
-            val bmp = bitmapOf(drawableId(name))
+            val bmp = bitmapOf(drawableId(name)) ?: mcBitmap(name)
             if (bmp != null) return bmp
         }
         return null
+    }
+
+    /**
+     * Official artwork straight out of Mi Canvas' own resources. The app ships a
+     * subset of the brush art; the original also draws a contact shadow
+     * (`creation_brush_ballpoint_shadow_u`), which is what makes the ball read
+     * like the system one.
+     */
+    private fun mcBitmap(name: String): Bitmap? {
+        val h = MiCanvasUi.hostResources() ?: return null
+        val id = h.getIdentifier(name, "drawable", MiCanvasUi.PKG)
+        if (id == 0) return null
+        return runCatching {
+            (androidx.core.content.res.ResourcesCompat.getDrawable(h, id, null) as? android.graphics.drawable.BitmapDrawable)?.bitmap
+        }.getOrNull()
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -122,6 +138,12 @@ class BrushGlyph @JvmOverloads constructor(
         }
         val highlight = firstBitmap("pk_${name}_highlight$suffix", "pk_${name}_highlight")
         if (highlight != null) fit(highlight, w, h, canvas, null, "${name}_highlight")
+        // Official composition: the ball also carries a contact shadow layer
+        // drawn from Mi Canvas' own artwork, which our subset of drawables lacked.
+        if (centreVertically) {
+            val shadow = firstBitmap("creation_brush_${name}_shadow_u", "creation_brush_${name}_shadow_s")
+            if (shadow != null) fit(shadow, w, h, canvas, null, "${name}_shadow")
+        }
         canvas.restore()
     }
 

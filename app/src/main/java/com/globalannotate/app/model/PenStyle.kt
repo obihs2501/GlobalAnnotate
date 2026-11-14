@@ -25,8 +25,10 @@ enum class PenStyle(
     val isEraser: Boolean = false,
 ) {
     // Ranges and defaults are PenBean's constants from Mi Canvas.
-    BALLPOINT("圆珠笔", 1, 22, 6, 255, 0.40f),
-    PENCIL("铅笔", 1, 6, 3, 255, 0.45f, titleSensitivity = "倾斜角灵敏度"),
+    BALLPOINT("圆珠笔", 1, 64, 6, 255, 0.40f),
+    // Mi Canvas caps the pencil at 6, which reads hairline-thin on a 3200px
+    // canvas. Raised so the top of the slider is actually usable.
+    PENCIL("铅笔", 1, 24, 3, 255, 0.45f, titleSensitivity = "倾斜角灵敏度"),
     INK_PEN("钢笔", 1, 30, 15, 255, 0.55f, titleSensitivity = "压力灵敏度", showTip = true),
     MARKER("马克笔", 5, 65, 30, 255, 0.42f),
     WATER_COLOR("水彩笔", 5, 65, 30, 255, 0.75f),

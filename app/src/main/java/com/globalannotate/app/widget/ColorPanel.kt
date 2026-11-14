@@ -128,18 +128,18 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
 
         tabs.selectedIndex = 0
         tabs.onTabSelected = { index ->
-            // Mi Canvas' CustomViewPager slides between the two pages. A hard
-            // VISIBLE/GONE flip made the switch feel broken.
+            // Deterministic swap: the unselected page is hidden immediately. An
+            // earlier version hid it from an animation end-action, which a
+            // cancel() skipped — the slider page then stayed visible on top of
+            // the grid and swallowed every tap, so 网格取色 appeared dead.
             val incoming = if (index == 0) gridPage else sliderPage
             val outgoing = if (index == 0) sliderPage else gridPage
             val dir = if (index == 0) -1f else 1f
-            outgoing.animate().cancel()
-            outgoing.animate()
-                .alpha(0f).translationX(24f * density * -dir)
-                .setDuration(110)
-                .withEndAction { outgoing.visibility = View.GONE }
-                .start()
             incoming.animate().cancel()
+            outgoing.animate().cancel()
+            outgoing.visibility = View.GONE
+            outgoing.alpha = 1f
+            outgoing.translationX = 0f
             incoming.visibility = View.VISIBLE
             incoming.alpha = 0f
             incoming.translationX = 24f * density * dir

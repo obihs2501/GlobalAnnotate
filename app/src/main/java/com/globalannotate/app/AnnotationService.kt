@@ -103,6 +103,8 @@ class AnnotationService : Service(),
     private var fingerDraw = false
     /** Master switch for finger scroll-follow; off means the ink never pans. */
     private var fingerScrollEnabled = true
+    /** true = fingers reach the app below; false = the annotation layer consumes them. */
+    private var touchPassthrough = true
     /** True while the colour editor was opened from the fourth (custom) slot. */
     private var editingCustomColor = false
     /** The fourth swatch: the colour Mi Canvas keeps there. 0 = rainbow disc. */
@@ -154,7 +156,9 @@ class AnnotationService : Service(),
         // that choice down to the canvas.
         canvas.setOnTouchListener { _, event ->
             if (!canvas.allowFinger && event.getToolType(0) == MotionEvent.TOOL_TYPE_FINGER) {
-                return@setOnTouchListener false
+                // Passthrough off: the window is touchable precisely so the
+                // finger stops here instead of scrolling the app underneath.
+                return@setOnTouchListener !touchPassthrough
             }
             if (event.actionMasked == MotionEvent.ACTION_DOWN) closePanels()
             canvas.injectStylusEvent(event)
@@ -323,15 +327,19 @@ class AnnotationService : Service(),
     private fun applyInputMode() {
         val intercept = helperReady and HelperProtocol.READY_INTERCEPT != 0
         // With the helper intercepting the pen the window stays NOT_TOUCHABLE so
-        // a finger keeps scrolling the app underneath. "用手指涂画" flips exactly
-        // that: the window becomes touchable and the finger paints instead.
-        val touchable = !intercept || fingerDraw
+        // a finger keeps scrolling the app underneath. Two switches change that:
+        //  - "用手指涂画" makes the finger paint on the canvas;
+        //  - "手指事件透传" off makes this window eat finger touches so they never
+        //    reach the app below (a scroll-lock for the underlying page).
+        val touchable = !intercept || fingerDraw || !touchPassthrough
         val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
             (if (touchable) 0 else WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE)
         canvasParams.flags = flags
         canvasParams.alpha = 1f
-        canvas.allowFinger = touchable
+        // Painting follows the brush setting only; consuming touches must not
+        // silently turn the finger into a brush.
+        canvas.allowFinger = fingerDraw || !intercept
         if (canvas.isAttachedToWindow) {
             runCatching { windowManager.updateViewLayout(canvas, canvasParams) }
         }
@@ -365,6 +373,9 @@ class AnnotationService : Service(),
         // A finger interacting with any open panel (e.g. scrolling the gesture
         // dropdown) must never pan the ink layer underneath it.
         if (openPanel != null || openShell != null) return
+        // With passthrough off the page underneath never scrolls, so following it
+        // would only shove our own ink around.
+        if (!touchPassthrough) return
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 fingerPointerDown = true
@@ -699,7 +710,7 @@ class AnnotationService : Service(),
 
     override fun onOpenMore(anchorX: Int) {
         Log.i(TAG, "more tap at $anchorX")
-        moreMenu.setChecks(autoMinimize, fingerDraw, fingerScrollEnabled)
+        moreMenu.setChecks(autoMinimize, fingerDraw, fingerScrollEnabled, touchPassthrough)
         moreMenu.setLongShotEnabled(helper != null)
         showPanel(moreMenu, anchorX, dp(200), 0)
     }
@@ -996,6 +1007,12 @@ class AnnotationService : Service(),
     override fun onClear() { canvas.clear(); closePanels() }
     override fun onAutoMinimize(enabled: Boolean) { autoMinimize = enabled }
     override fun onFingerDraw(enabled: Boolean) { fingerDraw = enabled; applyInputMode() }
+    override fun onTouchPassthrough(enabled: Boolean) {
+        touchPassthrough = enabled
+        prefs.edit().putBoolean(KEY_TOUCH_PASSTHROUGH, enabled).apply()
+        applyInputMode()
+        Log.i(TAG, "touch passthrough=$enabled")
+    }
     override fun onFingerScroll(enabled: Boolean) {
         fingerScrollEnabled = enabled
         prefs.edit().putBoolean(KEY_FINGER_SCROLL, enabled).apply()
@@ -1306,6 +1323,7 @@ class AnnotationService : Service(),
         )
         customColor = num(KEY_CUSTOM)?.toInt() ?: 0
         fingerScrollEnabled = p.getBoolean(KEY_FINGER_SCROLL, true)
+        touchPassthrough = p.getBoolean(KEY_TOUCH_PASSTHROUGH, true)
     }
 
     private fun saveGestures() {
@@ -1415,6 +1433,7 @@ class AnnotationService : Service(),
         private const val KEY_ERASER_SIZE = "eraser_size"
         private const val KEY_CUSTOM = "custom_color"
         private const val KEY_FINGER_SCROLL = "finger_scroll"
+        private const val KEY_TOUCH_PASSTHROUGH = "touch_passthrough"
 
         var isRunning: Boolean = false
             private set

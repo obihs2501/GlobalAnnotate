@@ -233,6 +233,9 @@ object MiCanvasUi {
         }.onFailure { Log.w(TAG, "dump $className failed: $it") }
     }
 
+    /** Mi Canvas' own Resources, for artwork the app does not ship. */
+    fun hostResources(): Resources? = host?.resources
+
     fun classFor(name: String): Class<*>? =
         runCatching { Class.forName(name, true, host!!.loader) }.getOrNull()
 }

@@ -30,7 +30,8 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
     private val accent = Color.parseColor("#3482FF")
     private val titleColor = ContextCompat.getColor(context, R.color.penpicker_colorpicker_text_title)
     private val bodyColor = ContextCompat.getColor(context, R.color.penpicker_pen_set_text)
-    private val subColor = Color.parseColor("#99000000")
+    private val subColor = if (night()) Color.parseColor("#B3FFFFFF").toInt() else Color.parseColor("#99000000").toInt()
+    private val optionBg = if (night()) Color.argb(26, 255, 255, 255) else Color.argb(8, 0, 0, 0)
 
     private val rows = LinkedHashMap<Gesture, Row>()
     private var expanded: Gesture? = null
@@ -110,7 +111,7 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
                 orientation = VERTICAL
                 visibility = View.GONE
                 background = GradientDrawable().apply {
-                    setColor(Color.argb(8, 0, 0, 0))
+                    setColor(optionBg)
                     cornerRadius = 20f * density
                 }
                 setPadding(0, dp(4), 0, dp(4))
@@ -188,7 +189,12 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
         setColor(Color.TRANSPARENT)
         cornerRadius = 20f * density
     }
-
+    /** Same test the rest of the UI uses: the capsule colour decides the theme. */
+    private fun night(): Boolean {
+        val bg = ContextCompat.getColor(context, R.color.penpicker_background_color)
+        val lum = 0.299f * Color.red(bg) + 0.587f * Color.green(bg) + 0.114f * Color.blue(bg)
+        return lum < 128f
+    }
     private fun gestureLabel(gesture: Gesture): String = when (gesture) {
         Gesture.SQUEEZE -> "轻捏笔身"
         Gesture.DOUBLE_TAP -> "双击笔身"

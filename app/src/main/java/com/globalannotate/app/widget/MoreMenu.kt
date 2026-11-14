@@ -26,6 +26,8 @@ class MoreMenu(context: Context, private val listener: Listener) : LinearLayout(
         fun onFingerDraw(enabled: Boolean)
         /** Disable finger scroll-follow (palm rejection for the ink layer). */
         fun onFingerScroll(enabled: Boolean)
+        /** Let finger touches reach the app underneath (off = annotation layer eats them). */
+        fun onTouchPassthrough(enabled: Boolean)
         fun onQuit()
     }
 
@@ -48,6 +50,7 @@ class MoreMenu(context: Context, private val listener: Listener) : LinearLayout(
         check("自动最小化", true) { listener.onAutoMinimize(it) }
         check("用手指涂画", false) { listener.onFingerDraw(it) }
         check("手指滑动跟随", true) { listener.onFingerScroll(it) }
+        check("手指事件透传", true) { listener.onTouchPassthrough(it) }
     }
 
     private fun item(text: String, icon: Int, click: () -> Unit) {
@@ -79,10 +82,16 @@ class MoreMenu(context: Context, private val listener: Listener) : LinearLayout(
         checkedList.addView(row)
     }
 
-    fun setChecks(autoMinimize: Boolean, fingerDraw: Boolean, fingerScroll: Boolean) {
+    fun setChecks(
+        autoMinimize: Boolean,
+        fingerDraw: Boolean,
+        fingerScroll: Boolean,
+        touchPassthrough: Boolean,
+    ) {
         set(0, autoMinimize)
         set(1, fingerDraw)
         set(2, fingerScroll)
+        set(3, touchPassthrough)
     }
 
     private fun set(index: Int, enabled: Boolean) {
