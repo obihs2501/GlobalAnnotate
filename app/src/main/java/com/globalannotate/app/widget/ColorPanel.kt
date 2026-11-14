@@ -194,21 +194,32 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
      */
     private fun bindRemoteListener(popup: android.widget.PopupWindow) {
         val loader = popup.javaClass.classLoader
-        val iface = runCatching { Class.forName(MC_LISTENER, true, loader) }.getOrNull() ?: return
-        val proxy = Proxy.newProxyInstance(loader, arrayOf(iface)) { _, _, args ->
+        val iface = runCatching { Class.forName(MC_LISTENER, true, loader) }.getOrNull()
+        if (iface == null) {
+            Log.w(TAG, "listener interface $MC_LISTENER not found")
+            return
+        }
+        val proxy = Proxy.newProxyInstance(loader, arrayOf(iface)) { _, method, args ->
+            Log.i(TAG, "remote ${method.name}")
             (args?.firstOrNull())?.let { readRemoteModel(it) }
             null
         }
-        var installed = false
-        for (field in popup.javaClass.declaredFields) {
-            if (field.type != iface) continue
-            installed = runCatching {
-                field.isAccessible = true
-                field.set(popup, proxy)
-                true
-            }.getOrDefault(false) || installed
+        // The field may live on any superclass of the popup.
+        var installed = 0
+        var cls: Class<*>? = popup.javaClass
+        while (cls != null && cls != Any::class.java) {
+            for (field in cls.declaredFields) {
+                if (field.type != iface) continue
+                val ok = runCatching {
+                    field.isAccessible = true
+                    field.set(popup, proxy)
+                    true
+                }.getOrDefault(false)
+                if (ok) installed++
+            }
+            cls = cls.superclass
         }
-        if (!installed) Log.w(TAG, "listener field for $iface not found")
+        Log.i(TAG, "listener fields installed=$installed")
     }
 
     /** `l1IIiiι` carries an HSL model; `lIIIlll()` is its ARGB colour. */
