@@ -198,7 +198,10 @@ class AnnotationService : Service(),
         val barWidth = toolbar.contentWidthPx().coerceAtLeast(dp(360))
         toolbarParams = overlay(barWidth, dp(BAR_HEIGHT_DP), base).apply {
             x = prefs.getInt(KEY_BAR_X, -1).let { if (it >= 0) it else (screenWidth - barWidth) / 2 }
-            y = prefs.getInt(KEY_BAR_Y, -1).let { if (it >= 0) it else screenHeight - dp(BAR_HEIGHT_DP) - dp(30) }
+            // 36dp keeps the capsule clear of the launcher dock and the gesture
+            // bar; the window is 18dp taller than the capsule for the tools'
+            // outward travel, so this is measured from the window top.
+            y = prefs.getInt(KEY_BAR_Y, -1).let { if (it >= 0) it else screenHeight - dp(BAR_HEIGHT_DP) - dp(36) }
         }
         orbParams = overlay(dp(96), dp(96), base).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -1055,8 +1058,10 @@ class AnnotationService : Service(),
         private const val WRAP = WindowManager.LayoutParams.WRAP_CONTENT
         private val PANEL_EASE = PathInterpolator(0f, 0f, 0.2f, 1f)
         private const val PREFS = "global_annotate_brush"
-        private const val KEY_BAR_X = "bar_x"
-        private const val KEY_BAR_Y = "bar_y"
+        // v2 keys: old builds stored a position for a 102dp window, which made
+        // the taller bar sink into the dock after the upgrade.
+        private const val KEY_BAR_X = "bar_x_v2"
+        private const val KEY_BAR_Y = "bar_y_v2"
         private const val KEY_STYLE = "style"
         private const val KEY_COLOR = "color"
         private const val KEY_SIZE = "size"
