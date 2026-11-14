@@ -367,8 +367,7 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         }
     }
 
-    private companion object {
-        const val CAPSULE_DP = 102
+    companion object {
         /**
          * Mi Canvas' tool slot is 124dp long and 48dp thick (68dp for the
          * eraser): the pen artwork is 48x123dp at xxhdpi, so a 124dp slot shows
