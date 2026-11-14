@@ -812,13 +812,14 @@ class AnnotationService : Service(),
         // Keep the measured surface fully on screen: the original presenter did
         // this with its own offset maths, which is not instantiable here. Without
         // it a tool in the bar's right half pushed the popup off the right edge.
-        val loc = IntArray(2)
-        anchor.getLocationOnScreen(loc)
-        val anchorLeft = loc[0]
-        val anchorTop = loc[1]
-        val anchorBottom = anchorTop + anchor.height
+        // Derive the proxy's screen rect from its layout params: reading
+        // getLocationOnScreen() here ran before the pending layout pass and
+        // always returned 0, which then anchored the popup at the bar's left edge.
+        val anchorLeft = lp.leftMargin
+        val anchorTop = lp.topMargin + popupHostInsetTop()
+        val anchorBottom = anchorTop + lp.height
         val margin = dp(8)
-        val desiredX = (anchorLeft + anchor.width / 2 - width / 2)
+        val desiredX = (anchorLeft + lp.width / 2 - width / 2)
             .coerceIn(margin, (screenWidth - width - margin).coerceAtLeast(margin))
         val above = anchorTop - height - dp(10)
         val desiredY = if (above >= dp(24)) above else anchorBottom + dp(10)
