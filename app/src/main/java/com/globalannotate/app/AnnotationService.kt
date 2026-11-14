@@ -168,8 +168,13 @@ class AnnotationService : Service(),
         gesturePanel.setWillNotDraw(false)
 
         popupHost.addView(dismissLayer, FrameLayout.LayoutParams(MATCH, MATCH))
+        popupHost.clipChildren = false
+        popupHost.clipToPadding = false
         for (panel in listOf<View>(colorPanel, brushPanel, eraserPanel, moreMenu, gesturePanel)) {
             panel.visibility = View.GONE
+            // Mi Canvas lifts popups with a 150-blur MiShadow; elevation is the
+            // closest the platform lets an overlay window draw.
+            panel.elevation = dp(20).toFloat()
             popupHost.addView(panel, FrameLayout.LayoutParams(WRAP, WRAP))
         }
         popupHost.visibility = View.GONE
