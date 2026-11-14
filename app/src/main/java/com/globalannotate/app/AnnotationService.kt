@@ -490,10 +490,15 @@ class AnnotationService : Service(),
     }
 
     private fun cycleColor() {
-        val colors = BrushConfig.QUICK_COLORS
+        // Rotate through the bar's quick colours AND the panel's palette so the
+        // gesture keeps producing visibly different ink. Keep every open panel
+        // in sync, otherwise the palette looks stuck.
+        val colors = BrushConfig.QUICK_COLORS + BrushConfig.RECENT_COLORS
         val index = colors.indexOf(canvas.brush.color)
         val next = colors[(index + 1).mod(colors.size)]
         canvas.brush = canvas.brush.copy(color = next)
+        colorPanel.color = next
+        brushPanel.updateColor(next)
         refreshToolbar()
     }
 
@@ -704,12 +709,14 @@ class AnnotationService : Service(),
 
     override fun onParam(kind: BrushPanel.ParamKind, value: Float) {
         val b = canvas.brush
+        // Values arrive in the sliders' own units: size in pen units, sensitivity
+        // in percent, tip 1..4, alpha 0..255.
         canvas.brush = when (kind) {
             BrushPanel.ParamKind.SIZE ->
-                b.copy(size = b.style.minSize + value * (b.style.maxSize - b.style.minSize))
-            BrushPanel.ParamKind.SENSITIVITY -> b.copy(sensitivity = value)
-            BrushPanel.ParamKind.TIP -> b.copy(tipSize = (1 + (value * 3).toInt()).coerceIn(1, 4))
-            BrushPanel.ParamKind.ALPHA -> b.copy(alpha = (value * 255f).toInt().coerceIn(0, 255))
+                b.copy(size = value.coerceIn(b.style.minSize.toFloat(), b.style.maxSize.toFloat()))
+            BrushPanel.ParamKind.SENSITIVITY -> b.copy(sensitivity = (value / 100f).coerceIn(0f, 1f))
+            BrushPanel.ParamKind.TIP -> b.copy(tipSize = value.toInt().coerceIn(1, 4))
+            BrushPanel.ParamKind.ALPHA -> b.copy(alpha = value.toInt().coerceIn(3, 255))
         }
         refreshToolbar()
         brushPanel.brush = canvas.brush

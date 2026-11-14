@@ -120,6 +120,7 @@ class BrushPanel(context: Context, private val listener: Listener) : LinearLayou
             fallback.onProgress = { p ->
                 val raw = min + p * (max - min)
                 valueView.text = label(raw)
+                // The service takes the same raw units as the Mi Canvas sliders.
                 listener.onParam(kind, raw)
             }
             fallback

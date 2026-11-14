@@ -100,7 +100,7 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
                 artLengthDp = PEN_HEIGHT_DP.toFloat()
                 layoutParams = LinearLayout.LayoutParams(
                     dp(if (style == PenStyle.ERASER) LARGE_WIDTH_DP else PEN_WIDTH_DP),
-                    dp(PEN_HEIGHT_DP + OUTWARD_DP),
+                    dp(PEN_HEIGHT_DP + OUTWARD_DP + 4),
                 ).apply {
                     if (style == PenStyle.toolbarOrder.first()) marginStart = dp(20)
                 }
@@ -381,7 +381,7 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         /** Capsule is 108dp; the 124dp tools overhang it like the original. */
         const val CAPSULE_DP = 108
         /** Window = tool row (124dp) + outward travel (18dp). */
-        const val WINDOW_HEIGHT_DP = PEN_HEIGHT_DP + OUTWARD_DP
+        const val WINDOW_HEIGHT_DP = PEN_HEIGHT_DP + OUTWARD_DP + 4
         const val BAR_HEIGHT_DP = WINDOW_HEIGHT_DP
         const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
     }
