@@ -878,6 +878,16 @@ class AnnotationService : Service(),
                         popup.isOutsideTouchable = true
                         popup.showAsDropDown(toolbar, 0, -dp(40))
                     }.onFailure { Log.e(TAG, "MCPOPUP show failed", it) }
+                    // Mi Canvas' presenter sizes the content when it shows the
+                    // popup (`IlIll1i`); without it the scroll view collapses to 0.
+                    runCatching {
+                        val px = com.globalannotate.app.mc.MiCanvasUi
+                            .dimension("creation_color_picker_popup_height")
+                        popup.javaClass
+                            .getMethod("IlIll1i", Int::class.javaPrimitiveType)
+                            .invoke(popup, px)
+                        Log.i(TAG, "MCPOPUP sized to $px")
+                    }.onFailure { Log.e(TAG, "MCPOPUP size failed", it) }
                     popup.contentView?.post { dumpTree(popup.contentView, "MCPOPUP") }
                 }
             }

@@ -177,6 +177,12 @@ object MiCanvasUi {
 
     fun layoutId(name: String): Int = host?.resources?.getIdentifier(name, "layout", PKG) ?: 0
 
+    fun dimension(name: String): Int {
+        val h = host ?: return 0
+        val id = h.resources.getIdentifier(name, "dimen", PKG)
+        return if (id == 0) 0 else h.resources.getDimensionPixelSize(id)
+    }
+
     fun inflate(layoutName: String): View? {
         val h = host ?: return null
         val id = layoutId(layoutName)
