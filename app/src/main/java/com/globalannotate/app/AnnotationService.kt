@@ -221,7 +221,9 @@ class AnnotationService : Service(),
         windowManager.addView(toolbar, toolbarParams)
         windowManager.addView(popupHost, popupParams)
         windowManager.addView(palette, paletteParams)
-        for (view in listOf(canvas, toolbar, orb, popupHost, palette)) {
+        // popupHost and palette start hidden and have no surface yet; they are
+        // excluded when they are first shown instead.
+        for (view in listOf(canvas, toolbar, orb)) {
             excludeFromCapture(view)
         }
 
@@ -482,6 +484,7 @@ class AnnotationService : Service(),
         toolbar.visibility = View.VISIBLE
         refreshToolbar()
         updateExclusion()
+        updateExclusionAfterLayout()
     }
 
     private fun collapseBar() {
@@ -548,6 +551,8 @@ class AnnotationService : Service(),
         if (!active) setActive(true)
         palette.showAt(penTip.x, penTip.y)
         palette.visibility = View.VISIBLE
+        // Its surface only exists once the window is visible.
+        excludeFromCapture(palette)
     }
 
     private fun cycleColor() {
@@ -703,6 +708,8 @@ class AnnotationService : Service(),
         openPanel = panel
         popupHost.visibility = View.VISIBLE
         popupHost.invalidate()
+        excludeFromCapture(popupHost)
+        updateExclusionAfterLayout()
         panel.post {
             if (openPanel === panel) {
                 panel.animate().scaleX(1f).scaleY(1f)
@@ -757,6 +764,16 @@ class AnnotationService : Service(),
      * or the toolbar swallows the pen in the other orientations. The bounds are
      * re-read here because they change with the rotation.
      */
+    /**
+     * The rects are built from a view's laid-out size, so a bar or panel that was
+     * just made visible still reports width 0 for the rest of this frame. Without
+     * this second pass the toolbar never made it into the exclusion region at all
+     * and a pen tap on it painted a stroke instead of pressing the button.
+     */
+    private fun updateExclusionAfterLayout() {
+        toolbar.postDelayed({ updateExclusion() }, 64)
+    }
+
     private fun updateExclusion() {
         val client = helper ?: return
         if (helperReady and HelperProtocol.READY_INTERCEPT == 0) return
