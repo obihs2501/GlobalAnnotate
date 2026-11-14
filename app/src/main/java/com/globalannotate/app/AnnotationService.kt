@@ -520,6 +520,7 @@ class AnnotationService : Service(),
     // ── toolbar listener ───────────────────────────────────────────────────
 
     override fun onTool(style: PenStyle, anchorX: Int) {
+        Log.i(TAG, "tool tap $style at $anchorX")
         val same = canvas.brush.style == style
         if (!same) {
             // Mi Canvas: the first tap only selects the tool; its settings popup
@@ -554,6 +555,7 @@ class AnnotationService : Service(),
     override fun onOpenColorPanel(anchorX: Int) = showColorPanel(anchorX)
 
     override fun onOpenMore(anchorX: Int) {
+        Log.i(TAG, "more tap at $anchorX")
         moreMenu.setChecks(autoMinimize, fingerDraw)
         moreMenu.setLongShotEnabled(helper != null)
         showPanel(moreMenu, anchorX, dp(200), 0)
@@ -655,7 +657,18 @@ class AnnotationService : Service(),
         add(toolbar, toolbarVisible)
         add(orb, active)
         openPanel?.let { add(it, true) }
-        client.setExcludedRegion(rects)
+        // The helper's gesture-monitor surface lives in the display's natural
+        // (portrait) frame, so the rectangles must be rotated before use.
+        val rotation = (getSystemService(WINDOW_SERVICE) as WindowManager)
+            .defaultDisplay?.rotation ?: android.view.Surface.ROTATION_0
+        val natural = rects.map { r ->
+            if (rotation == android.view.Surface.ROTATION_90) {
+                Rect(screenHeight - r.bottom, r.left, screenHeight - r.top, r.right)
+            } else {
+                r
+            }
+        }
+        client.setExcludedRegion(natural)
     }
 
     // ── panel listeners ────────────────────────────────────────────────────
