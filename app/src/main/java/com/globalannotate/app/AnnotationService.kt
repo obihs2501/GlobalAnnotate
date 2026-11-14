@@ -201,7 +201,7 @@ class AnnotationService : Service(),
             // 36dp keeps the capsule clear of the launcher dock and the gesture
             // bar; the window is 18dp taller than the capsule for the tools'
             // outward travel, so this is measured from the window top.
-            y = prefs.getInt(KEY_BAR_Y, -1).let { if (it >= 0) it else screenHeight - dp(BAR_HEIGHT_DP) - dp(36) }
+            y = prefs.getInt(KEY_BAR_Y, -1).let { if (it >= 0) it else screenHeight - dp(BAR_HEIGHT_DP) - dp(16) }
         }
         orbParams = overlay(dp(96), dp(96), base).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -1052,7 +1052,7 @@ class AnnotationService : Service(),
         private const val TAG = "AnnotationService"
         private const val NOTIFICATION_ID = 42
         private const val CHANNEL_ID = "global_annotate"
-        private const val BAR_HEIGHT_DP = 120
+        private const val BAR_HEIGHT_DP = ToolbarView.WINDOW_HEIGHT_DP
         private const val MAX_LONG_SCREENS = 12
         private const val MATCH = WindowManager.LayoutParams.MATCH_PARENT
         private const val WRAP = WindowManager.LayoutParams.WRAP_CONTENT

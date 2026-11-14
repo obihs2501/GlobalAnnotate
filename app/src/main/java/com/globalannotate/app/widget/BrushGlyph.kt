@@ -39,7 +39,7 @@ class BrushGlyph @JvmOverloads constructor(
         set(value) { field = value; invalidate() }
 
     /** Drawn length of the pen, independent of the slot's travel headroom. */
-    var artLengthDp: Float = 77f
+    var artLengthDp: Float = 124f
         set(value) { field = value; invalidate() }
 
     private val dst = RectF()
