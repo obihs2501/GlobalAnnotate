@@ -721,6 +721,14 @@ class AnnotationService : Service(),
                 if (!active) setActive(true) else applyGesture(gesture)
             }
             Actions.SET_SPLIT_MODE -> Unit
+            "com.globalannotate.action.DUMPMC" -> {
+                for (name in listOf(
+                    "com.xiaomi.penpicker.colorpicker.ColorPickerAlphaView",
+                    "com.xiaomi.penpicker.colorpicker.ColorPickerSaturationView",
+                    "com.xiaomi.penpicker.colorpicker.ColorPickerLightnessView",
+                    "com.xiaomi.penpicker.popup.SelectAlphaView",
+                )) com.globalannotate.app.mc.MiCanvasUi.dumpMethods(name)
+            }
         }
     }
 

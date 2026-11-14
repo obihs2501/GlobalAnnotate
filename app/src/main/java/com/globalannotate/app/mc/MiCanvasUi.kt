@@ -146,6 +146,22 @@ object MiCanvasUi {
         }
     }
 
+    /** Debug aid: print the real (obfuscated) method table of a class. */
+    fun dumpMethods(className: String) {
+        val h = host ?: return
+        runCatching {
+            var cls: Class<*>? = Class.forName(className, true, h.loader)
+            while (cls != null && cls != java.lang.Object::class.java) {
+                for (m in cls.declaredMethods) {
+                    if (m.parameterTypes.size <= 2) {
+                        Log.i(TAG, "METHOD ${cls.simpleName}.${m.name}(${m.parameterTypes.joinToString(",") { it.simpleName }}) -> ${m.returnType.simpleName}")
+                    }
+                }
+                cls = cls.superclass
+            }
+        }.onFailure { Log.w(TAG, "dump $className failed: $it") }
+    }
+
     fun classFor(name: String): Class<*>? =
         runCatching { Class.forName(name, true, host!!.loader) }.getOrNull()
 }
