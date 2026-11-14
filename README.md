@@ -176,3 +176,17 @@ hook 点来自 FocusPenProX 在 `OS3.0.307.0.WOCCNXM` / `OS4.0.4.0.XPYCNXM` 的�
 - `PenEngine-release_0.3.2.aar` 的 jadx 逆向结果：确认 `194–197`、touch-film 握手免鉴权。
 
 许可证沿用各自上游；本工程新增代码按需自行选择许可证后再分发。
+
+
+---
+
+## 11. 2026-11-14 现状（本轮重写）
+
+- **输入**：不再由 App 窗口声明 `INTERCEPTS_STYLUS`（普通 App 声明会让 `InputDispatcher` abort，导致 system_server 重启）。改由 root 助手（`su -c app_process`）创建受信任的手写笔输入面：笔进批注层、手指原样落到下层应用；助手同时读原始笔键盘（scan 189 轻捏 / 78 双击）、监听手指用于滚动跟随、并可临时解除输入窗口透明度限制。
+- **小米创作控件直接复用**：运行时 `DexClassLoader + createPackageContext("com.miui.creation")` 加载其 APK，实例化原版 `ColorPickPanelView`、`SelectPropertyView`/`SelectAlphaView`、`ColorPickerHue/Saturation/Lightness/AlphaView`；混淆成员按真实名 `I1Iιili`（U+03B9）解析，失败按签名扫描并回退到自带控件。
+- **工具栏**：槽位固定（笔 45×77dp，橡皮 64×77dp，不重排）；选中动效按小米创作实测实现——未选中外顶 18dp、选中回位，spring 300ms；18dp 行程在图标画布内完成，末端不会再被父容器裁掉。
+- **弹窗**：锚定在工具栏上方，0.6→1.0/280ms + 100ms 淡入，退场 150ms 对称；宽 288dp（笔/橡皮）、338×536dp（颜色）、200dp（菜单），24/36dp 圆角与 elevation 阴影。
+- **笔刷**：范围/默认值按 PenBean（圆珠笔 1–22/6、铅笔 1–6/3、钢笔 1–30/15、马克笔与水彩 5–65/30、笔尖 1–4、不透明度 3–255）；同一 size 同一压力下实测与小米创作笔迹粗细一致（31px vs 30px）。
+- **墨迹**：沿路径的变宽带，纹理只调制 alpha；绘制中整笔重绘（不再拼接增量段），消除书写时的左右抖动；停笔 0.5s 一笔成形。
+- **导出**：单屏 PNG/PDF 与滚动长图（root 注入滚动 + 重叠拼接 + 逐帧合成墨迹）。
+- **未完成**：mိuix `FilterSortView` 原类 tab、更多菜单文案/图标的逐项核对、上/下滑（LSPosed 通道待修）、微博实机长图验证、原生 `libmicurve` 笔刷纹理（无法脱离其引擎复现）。
