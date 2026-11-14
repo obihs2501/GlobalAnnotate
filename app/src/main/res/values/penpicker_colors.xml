@@ -36,4 +36,5 @@
     <color name="penpicker_palette_sweep_8">#89e743</color>
     <color name="penpicker_pen_set_text">#cc000000</color>
     <color name="pk_property_seekbar_bg">#0f000000</color>
+    <color name="penpicker_transparent">#00000000</color>
 </resources>
