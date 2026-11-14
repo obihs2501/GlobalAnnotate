@@ -176,9 +176,7 @@ class AnnotationService : Service(),
 
         val base = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
         val helperFlags = base or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
-        canvasParams = overlay(MATCH, MATCH, helperFlags).apply {
-            Hidden.setInputFeatures(this, FEATURE_INTERCEPTS_STYLUS)
-        }
+        canvasParams = overlay(MATCH, MATCH, helperFlags)
         val barWidth = toolbar.contentWidthPx().coerceAtLeast(dp(360))
         toolbarParams = overlay(barWidth, dp(BAR_HEIGHT_DP), base).apply {
             x = prefs.getInt(KEY_BAR_X, -1).let { if (it >= 0) it else (screenWidth - barWidth) / 2 }
@@ -234,10 +232,7 @@ class AnnotationService : Service(),
                 }
             }
 
-            override fun onStylus(event: MotionEvent) {
-                // The interceptor window receives the pen itself; a helper copy
-                // would draw every stroke twice.
-            }
+            override fun onStylus(event: MotionEvent) = dispatchStylus(event)
             override fun onFinger(event: MotionEvent) = dispatchFinger(event)
             override fun onPenKey(scanCode: Int, value: Int, uptimeMs: Long) =
                 dispatchPenKey(scanCode, value)
@@ -258,13 +253,25 @@ class AnnotationService : Service(),
     }
 
     /**
-     * The canvas is a stylus-only input window: `INTERCEPTS_STYLUS` routes the
-     * pen to it and leaves every finger to the app underneath. That flag is
-     * what makes annotation over a live app possible without taking touches
-     * away from it. The helper adds global pen keys and screenshots on top.
+     * The root helper owns a trusted `INTERCEPTS_STYLUS` surface (only root can
+     * declare one — an app-owned window aborts the input dispatcher), so the
+     * canvas itself stays NOT_TOUCHABLE and the pen arrives as frames.
+     *
+     * Without the helper the canvas has to be touchable, which takes touches
+     * away from the app underneath while annotation is active; that is the
+     * documented fallback rather than a silent no-op.
      */
     private fun applyInputMode() {
-        // Nothing to switch: the window configuration already does the job.
+        val intercept = helperReady and HelperProtocol.READY_INTERCEPT != 0
+        val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+            (if (intercept) WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE else 0)
+        canvasParams.flags = flags
+        canvasParams.alpha = 1f
+        if (canvas.isAttachedToWindow) {
+            runCatching { windowManager.updateViewLayout(canvas, canvasParams) }
+        }
+        helper?.setIntercept(active && intercept)
     }
 
     // ── stylus / finger / keys ─────────────────────────────────────────────
@@ -370,11 +377,13 @@ class AnnotationService : Service(),
         if (value) {
             expandBar()
             helper?.setOpacityLifted(true)
+            helper?.setIntercept(helperReady and HelperProtocol.READY_INTERCEPT != 0)
         } else {
             toolbarVisible = false
             closePanels()
             palette.hide()
             toolbar.visibility = View.GONE
+            helper?.setIntercept(false)
             helper?.setOpacityLifted(false)
         }
         refreshToolbar()
@@ -981,8 +990,6 @@ class AnnotationService : Service(),
         private const val CHANNEL_ID = "global_annotate"
         private const val BAR_HEIGHT_DP = 102
         private const val MAX_LONG_SCREENS = 12
-        /** `LayoutParams.INPUT_FEATURE_INTERCEPTS_STYLUS` (hidden constant). */
-        private const val FEATURE_INTERCEPTS_STYLUS = 0x40000000
         private const val MATCH = WindowManager.LayoutParams.MATCH_PARENT
         private const val WRAP = WindowManager.LayoutParams.WRAP_CONTENT
         private val PANEL_EASE = PathInterpolator(0f, 0f, 0.2f, 1f)
