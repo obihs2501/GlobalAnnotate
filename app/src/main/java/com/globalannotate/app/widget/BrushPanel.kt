@@ -3,25 +3,24 @@ package com.globalannotate.app.widget
 import android.content.Context
 import android.view.LayoutInflater
 import android.view.View
+import android.view.ViewGroup
 import android.widget.LinearLayout
+import android.widget.SeekBar
 import android.widget.TextView
 import com.globalannotate.app.R
+import com.globalannotate.app.mc.MiCanvasUi
 import com.globalannotate.app.model.BrushConfig
-import com.globalannotate.app.model.PenStyle
-import com.globalannotate.app.penpicker.ColorPickerAlphaView
 import com.globalannotate.app.penpicker.PickerBar
 import com.globalannotate.app.penpicker.SelectPropertyView
 
 /**
  * Brush settings popup, Mi Canvas `penpicker_popup_layout_pen_set` verbatim:
- * 110dp live preview, then a scrolling list of `penpicker_layout_pen_property_item`
- * rows (title + value, slider below). Which rows appear is per brush, exactly as
- * the original shows them:
+ * 110dp preview, then the property rows (`penpicker_layout_pen_property_item`:
+ * title + value, slider below).
  *
- *  圆珠笔 笔画粗细 / 不透明度
- *  铅笔   笔画粗细 / 倾斜角灵敏度 / 不透明度
- *  钢笔   笔画粗细 / 压力灵敏度 / 笔尖大小 / 不透明度
- *  马克笔 水彩笔 笔画粗细 / 不透明度
+ * When Mi Canvas is installed its own `SelectPropertyView` / `SelectAlphaView`
+ * are instantiated inside those rows, so the slider is the original class with
+ * its original track, ring and drawing code; only the value mapping is ours.
  */
 class BrushPanel(context: Context, private val listener: Listener) : LinearLayout(context) {
 
@@ -33,9 +32,8 @@ class BrushPanel(context: Context, private val listener: Listener) : LinearLayou
 
     private val preview: StrokePreview
     private val container: LinearLayout
-    private val density = resources.displayMetrics.density
     private var current: BrushConfig = BrushConfig()
-    private var rows = mutableListOf<Row>()
+    private val rows = mutableListOf<Row>()
 
     var brush: BrushConfig
         get() = current
@@ -48,8 +46,11 @@ class BrushPanel(context: Context, private val listener: Listener) : LinearLayou
 
     private data class Row(
         val kind: ParamKind,
-        val bar: PickerBar,
         val value: TextView,
+        val bar: View,
+        val min: Int,
+        val max: Int,
+        val label: (Float) -> String,
     )
 
     init {
@@ -58,98 +59,142 @@ class BrushPanel(context: Context, private val listener: Listener) : LinearLayou
         preview = findViewById(R.id.iv_pen_review)
         container = findViewById(R.id.property_container)
         container.removeAllViews()
+        MiCanvasUi.init(context)
     }
 
-    private fun addRow(kind: ParamKind, title: String, value: String, progress: Float, alpha: Boolean): Row {
+    private fun addRow(
+        kind: ParamKind,
+        title: String,
+        value: String,
+        min: Int,
+        max: Int,
+        current: Int,
+        alpha: Boolean,
+        label: (Float) -> String,
+    ) {
         val row = LayoutInflater.from(context)
             .inflate(R.layout.penpicker_layout_pen_property_item, container, false)
         row.findViewById<TextView>(R.id.penpicker_property_title).text = title
         val valueView = row.findViewById<TextView>(R.id.penpicker_property_value)
         valueView.text = value
         val old = row.findViewById<View>(R.id.pk_property_seekbar)
-        val parent = old.parent as android.view.ViewGroup
+        val parent = old.parent as ViewGroup
         val index = parent.indexOfChild(old)
-        parent.removeView(old)
-        val bar: PickerBar = if (alpha) {
-            ColorPickerAlphaView(context).also {
-                it.layoutParams = old.layoutParams
-                it.baseColor = current.color
-            }
+
+        val mcClass = if (alpha) {
+            "com.xiaomi.penpicker.popup.SelectAlphaView"
         } else {
-            SelectPropertyView(context).also { it.layoutParams = old.layoutParams }
+            "com.xiaomi.penpicker.popup.SelectPropertyView"
         }
-        parent.addView(bar, index)
-        bar.progress = progress
-        bar.onProgress = { p ->
-            valueView.text = format(kind, p)
-            listener.onParam(kind, p)
+        val mcBar = MiCanvasUi.createSeekBar(mcClass)
+        if (mcBar != null && alpha) MiCanvasUi.clearWhiteStop(mcBar)
+        val bar: View = if (mcBar != null) {
+            parent.removeView(old)
+            mcBar.layoutParams = old.layoutParams
+            parent.addView(mcBar, index)
+            mcBar.max = max - min
+            mcBar.progress = (current - min).coerceIn(0, max - min)
+            mcBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                    if (!fromUser) return
+                    val raw = min + progress
+                    valueView.text = label(raw.toFloat())
+                    listener.onParam(kind, raw.toFloat())
+                }
+
+                override fun onStartTrackingTouch(seekBar: SeekBar) = Unit
+                override fun onStopTrackingTouch(seekBar: SeekBar) = Unit
+            })
+            mcBar
+        } else {
+            val fallback = if (alpha) {
+                com.globalannotate.app.penpicker.ColorPickerAlphaView(context)
+            } else {
+                SelectPropertyView(context)
+            }
+            fallback.layoutParams = old.layoutParams
+            parent.removeView(old)
+            parent.addView(fallback, index)
+            fallback.progress = if (max == min) 0f else (current - min).toFloat() / (max - min)
+            fallback.onProgress = { p ->
+                val raw = min + p * (max - min)
+                valueView.text = label(raw)
+                listener.onParam(kind, raw)
+            }
+            fallback
         }
+        if (alpha) updateAlphaGradient(bar, currentColor())
         container.addView(
             row,
-            LinearLayout.LayoutParams(LAYOUT_MATCH, LAYOUT_WRAP).apply {
-                if (container.childCount > 0) topMargin = 0
-            },
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            ),
         )
-        return Row(kind, bar, valueView)
+        rows.add(Row(kind, valueView, bar, min, max, label))
     }
 
-    private fun format(kind: ParamKind, p: Float): String = when (kind) {
-        ParamKind.SIZE -> (current.style.minSize + p * (current.style.maxSize - current.style.minSize)).toInt().toString()
-        ParamKind.SENSITIVITY -> "${(p * 100).toInt()}%"
-        ParamKind.TIP -> "${(1 + p * 3).toInt()}"
-        ParamKind.ALPHA -> "${(p * 100).toInt()}%"
+    private fun currentColor(): Int = current.color
+
+    /** Their alpha view paints white → colour; keep the second stop in sync. */
+    private fun updateAlphaGradient(bar: View, color: Int) {
+        if (bar is SeekBar) MiCanvasUi.call(bar, "m16933I1Iili", color)
+        else (bar as? PickerBar)?.baseColor = color
     }
 
-    private fun sizeProgress(): Float {
-        val span = (current.style.maxSize - current.style.minSize).coerceAtLeast(1)
-        return ((current.size - current.style.minSize) / span.toFloat()).coerceIn(0f, 1f)
-    }
+    private fun sizeLabel(value: Float): String = value.toInt().toString()
 
     private fun build() {
         container.removeAllViews()
-        rows = mutableListOf()
+        rows.clear()
         val b = current
-        if (b.style.isEraser) return
-        rows.add(
+        val style = b.style
+        if (style.isEraser) return
+        addRow(
+            ParamKind.SIZE, "笔画粗细", sizeLabel(b.size),
+            style.minSize, style.maxSize, b.size.toInt(), alpha = false,
+        ) { sizeLabel(it) }
+        style.titleSensitivity?.let { title ->
             addRow(
-                ParamKind.SIZE, "笔画粗细", b.size.toInt().toString(), sizeProgress(), alpha = false,
-            ),
-        )
-        b.style.titleSensitivity?.let { title ->
-            rows.add(
-                addRow(ParamKind.SENSITIVITY, title, "${(b.sensitivity * 100).toInt()}%", b.sensitivity, false),
-            )
+                ParamKind.SENSITIVITY, title, "${(b.sensitivity * 100).toInt()}%",
+                0, 100, (b.sensitivity * 100).toInt(), alpha = false,
+            ) { "${it.toInt()}%" }
         }
-        if (b.style.showTip) {
-            rows.add(addRow(ParamKind.TIP, "笔尖大小", "${b.tipSize}", (b.tipSize - 1) / 3f, false))
+        if (style.showTip) {
+            addRow(
+                ParamKind.TIP, "笔尖大小", b.tipSize.toString(),
+                1, 4, b.tipSize, alpha = false,
+            ) { it.toInt().toString() }
         }
-        rows.add(
-            addRow(ParamKind.ALPHA, "不透明度", "${(b.alpha * 100 / 255)}%", b.alpha / 255f, alpha = true),
-        )
+        addRow(
+            ParamKind.ALPHA, "不透明度", "${b.alpha * 100 / 255}%",
+            0, 255, b.alpha, alpha = true,
+        ) { "${(it * 100 / 255).toInt()}%" }
     }
 
     private fun syncRows() {
         for (row in rows) {
-            when (row.kind) {
-                ParamKind.SIZE -> row.bar.progress = sizeProgress()
-                ParamKind.SENSITIVITY -> row.bar.progress = current.sensitivity
-                ParamKind.TIP -> row.bar.progress = (current.tipSize - 1) / 3f
-                ParamKind.ALPHA -> {
-                    row.bar.progress = current.alpha / 255f
-                    row.bar.baseColor = current.color
-                }
+            val raw = when (row.kind) {
+                ParamKind.SIZE -> current.size.toInt()
+                ParamKind.SENSITIVITY -> (current.sensitivity * 100).toInt()
+                ParamKind.TIP -> current.tipSize
+                ParamKind.ALPHA -> current.alpha
             }
+            val bar = row.bar
+            if (bar is SeekBar) {
+                bar.progress = (raw - row.min).coerceIn(0, row.max - row.min)
+            } else if (bar is PickerBar) {
+                bar.progress = if (row.max == row.min) 0f
+                else (raw - row.min).toFloat() / (row.max - row.min)
+            }
+            row.value.text = row.label(raw.toFloat())
+            if (row.kind == ParamKind.ALPHA) updateAlphaGradient(bar, current.color)
         }
     }
 
     fun updateColor(color: Int) {
         current = current.copy(color = color)
         preview.brush = current
-        rows.forEach { it.bar.baseColor = color }
-    }
-
-    private companion object {
-        const val LAYOUT_MATCH = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-        const val LAYOUT_WRAP = android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+        rows.forEach { if (it.kind == ParamKind.ALPHA) updateAlphaGradient(it.bar, color) }
     }
 }

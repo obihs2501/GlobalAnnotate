@@ -101,6 +101,51 @@ object MiCanvasUi {
         }.onFailure { Log.w(TAG, "create $className failed: $it") }.getOrNull()
     }
 
+    /** A Mi Canvas slider view, usable as the plain boot-class SeekBar. */
+    fun createSeekBar(className: String): android.widget.SeekBar? {
+        val h = host ?: return null
+        return runCatching {
+            val cls = Class.forName(className, true, h.loader)
+            val ctor = cls.getConstructor(Context::class.java)
+            ctor.newInstance(h.context) as android.widget.SeekBar
+        }.onFailure { Log.w(TAG, "seekbar $className failed: $it") }.getOrNull()
+    }
+
+    /** Call an obfuscated setter; names are stable for one Mi Canvas build. */
+    fun call(view: View, method: String, vararg args: Any?): Boolean {
+        val types = args.map {
+            when (it) {
+                is Int -> Int::class.javaPrimitiveType
+                is IntArray -> IntArray::class.java
+                is Boolean -> Boolean::class.javaPrimitiveType
+                else -> it?.javaClass
+            }
+        }.toTypedArray()
+        return runCatching {
+            view.javaClass.getMethod(method, *types).invoke(view, *args)
+            true
+        }.onFailure { Log.w(TAG, "call $method failed: $it") }.getOrDefault(false)
+    }
+
+    /**
+     * Mi Canvas' gradient sliders keep their first colour stop as opaque white,
+     * which would hide the checkerboard. The presenter normally clears it; we
+     * do the same by finding the int field that still holds white.
+     */
+    fun clearWhiteStop(view: View) {
+        var cls: Class<*>? = view.javaClass
+        while (cls != null && cls != View::class.java) {
+            runCatching {
+                for (field in cls.declaredFields) {
+                    if (field.type != Int::class.javaPrimitiveType) continue
+                    field.isAccessible = true
+                    if (field.getInt(view) == 0xFFFFFF) field.setInt(view, 0)
+                }
+            }
+            cls = cls.superclass
+        }
+    }
+
     fun classFor(name: String): Class<*>? =
         runCatching { Class.forName(name, true, host!!.loader) }.getOrNull()
 }
