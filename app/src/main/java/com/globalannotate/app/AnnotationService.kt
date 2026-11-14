@@ -760,9 +760,11 @@ class AnnotationService : Service(),
         // clamps to the room above (or below) the bar, which is why its popup
         // never runs off screen. Using the whole display height left the surface
         // taller than the gap above the bar and pushed it past the bottom edge.
-        val above = toolbarParams.y - dp(12)
-        val below = screenHeight - (toolbarParams.y + dp(BAR_HEIGHT_DP)) - dp(12)
-        return width to declared.coerceAtMost(maxOf(above, below).coerceAtLeast(dp(240)))
+        // Never shrink the surface below its declared height: Mi Canvas' layout is
+        // fixed and squeezing it made the grid overlap the opacity row. If the
+        // space above the bar is short, the popup simply covers the bar (it is a
+        // separate window drawn on top) instead of losing content.
+        return width to declared.coerceAtMost(screenHeight - dp(16))
     }
 
     /**
@@ -824,11 +826,14 @@ class AnnotationService : Service(),
         // Pick the side with more room and clamp inside it. A strict "does it fit
         // with a marker gap" test flipped the popup below the bar, where a
         // 571dp-tall surface ran past the bottom of the display.
-        val roomAbove = anchorTop - margin
-        val roomBelow = screenHeight - anchorBottom - margin
-        val placeAbove = roomAbove >= roomBelow
-        val unclampedY = if (placeAbove) anchorTop - height - dp(10) else anchorBottom + dp(10)
-        val desiredY = unclampedY.coerceIn(margin, (screenHeight - height - margin).coerceAtLeast(margin))
+        // Prefer the gap above the bar; when the surface is taller than that gap,
+        // pin it to the top margin rather than cropping the layout.
+        val unclampedY = anchorTop - height - dp(10)
+        val desiredY = if (unclampedY >= margin) {
+            unclampedY
+        } else {
+            margin
+        }.coerceAtMost((screenHeight - height - margin).coerceAtLeast(margin))
         val dx = desiredX - anchorLeft
         val dy = desiredY - anchorBottom
         Log.i(TAG, "shell place anchor=$anchorLeft,$anchorTop size=${width}x$height dx=$dx dy=$dy")
