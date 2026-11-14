@@ -164,7 +164,7 @@ class InkEngine {
 
     private fun pencil(canvas: Canvas, stroke: InkStroke, offsetY: Float) {
         val pts = stroke.points
-        val bitmap = grain(canvas.densityHint)
+        val bitmap = grain(densityHint)
         val colorFilter = tint(stroke.color)
         stampPaint.reset()
         stampPaint.isAntiAlias = true
@@ -267,10 +267,8 @@ class InkEngine {
             Color.red(color) / 255f,
             Color.green(color) / 255f,
             Color.blue(color) / 255f,
-            1f,
+            Color.alpha(color) / 255f,
         )
-        val alpha = Color.alpha(color) / 255f
-        matrix.postScale(1f, 1f, 1f, alpha)
         return ColorMatrixColorFilter(matrix)
     }
 
@@ -352,7 +350,7 @@ class InkEngine {
 
     private fun noise(seed: Float, salt: Int): Float {
         val v = kotlin.math.sin(seed * 12.9898 + salt * 78.233f) * 43758.5453f
-        return abs(v - kotlin.math.floor(v))
+        return (v - kotlin.math.floor(v)).toFloat()
     }
 
     private fun List<InkPoint>.averageWidth(): Float {

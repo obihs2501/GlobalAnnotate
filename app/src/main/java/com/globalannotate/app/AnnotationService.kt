@@ -238,7 +238,9 @@ class AnnotationService : Service(),
             override fun onPenKey(scanCode: Int, value: Int, uptimeMs: Long) =
                 dispatchPenKey(scanCode, value)
 
-            override fun onHelperLog(message: String) = Log.i(TAG, "helper: $message")
+            override fun onHelperLog(message: String) {
+                Log.i(TAG, "helper: $message")
+            }
 
             override fun onHelperExit() {
                 helperReady = 0
@@ -723,7 +725,7 @@ class AnnotationService : Service(),
 
     // ── capture / export ───────────────────────────────────────────────────
 
-    private fun withBackground(block: (Bitmap) -> Unit) {
+    private fun withBackground(block: suspend (Bitmap) -> Unit) {
         scope.launch {
             val bitmap = withContext(Dispatchers.IO) { Exporter.captureScreenRoot() }
             if (bitmap == null) {

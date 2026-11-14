@@ -115,7 +115,7 @@ object Exporter {
         val h = buf.getInt(4)
         if (w <= 0 || h <= 0 || w > 8192 || h > 20000) return null
         val expected = w.toLong() * h * 4
-        val header = bytes.size - expected
+        val header = (bytes.size - expected).toInt()
         if (header < 12 || header > 32) return null
         val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val pixels = IntArray(w * h)
