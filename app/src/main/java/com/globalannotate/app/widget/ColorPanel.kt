@@ -9,6 +9,7 @@ import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
 import com.globalannotate.app.R
+import com.globalannotate.app.mc.McBridge
 import com.globalannotate.app.mc.MiCanvasUi
 import com.globalannotate.app.model.BrushConfig
 import com.globalannotate.app.penpicker.ColorPickPanelView
@@ -222,13 +223,11 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
 
         fun setGradient(color: Int) {
             val target = seek ?: return
-            val method = when {
-                alphaLike -> "m16882I1Iili"
-                target.javaClass.name.endsWith("SaturationView") -> "m16888I1Iili"
-                target.javaClass.name.endsWith("LightnessView") -> "m16887I1Iili"
-                else -> return
+            if (target.javaClass.name.endsWith("HueView")) {
+                // Hue's spectrum is static; nothing to feed.
+                return
             }
-            MiCanvasUi.call(target, method, color)
+            McBridge.setColour(target, color)
         }
 
         fun setBaseColor(color: Int) {

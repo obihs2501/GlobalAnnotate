@@ -70,8 +70,10 @@ object MiCanvasUi {
         return Host(themed, loader, base.resources, PKG)
     }
 
+    @Volatile
     private var appContext: Context? = null
 
+    @Synchronized
     fun init(context: Context) {
         appContext = context.applicationContext
     }

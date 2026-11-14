@@ -8,6 +8,7 @@ import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.TextView
 import com.globalannotate.app.R
+import com.globalannotate.app.mc.McBridge
 import com.globalannotate.app.mc.MiCanvasUi
 import com.globalannotate.app.model.BrushConfig
 import com.globalannotate.app.penpicker.PickerBar
@@ -138,7 +139,7 @@ class BrushPanel(context: Context, private val listener: Listener) : LinearLayou
 
     /** Their alpha view paints white → colour; keep the second stop in sync. */
     private fun updateAlphaGradient(bar: View, color: Int) {
-        if (bar is SeekBar) MiCanvasUi.call(bar, "m16933I1Iili", color)
+        if (bar is SeekBar) McBridge.setColour(bar, color)
         else (bar as? PickerBar)?.baseColor = color
     }
 

@@ -180,14 +180,23 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
 
     // ── state ──────────────────────────────────────────────────────────────
 
+    private var lastSelected: PenStyle? = null
+
     fun update(brush: BrushConfig, canUndo: Boolean, canRedo: Boolean) {
         // Slot geometry is fixed per tool, exactly like Mi Canvas: the eraser
         // (and ruler) use the large slot, every pen the normal one, and
         // selecting a brush never resizes or reflows the row.
+        val selected = brush.style
         glyphs.forEach { (style, glyph) ->
             glyph.color = brush.color
-            glyph.checked = style == brush.style
+            glyph.checked = style == selected
+            if (style == selected && lastSelected != selected) {
+                stretch(glyph, selected = true)
+            } else if (style != selected && lastSelected == style) {
+                stretch(glyph, selected = false)
+            }
         }
+        lastSelected = selected
         swatches.forEach { it.checked = it.color == brush.color }
         undo.enabledVisual = canUndo
         redo.enabledVisual = canRedo

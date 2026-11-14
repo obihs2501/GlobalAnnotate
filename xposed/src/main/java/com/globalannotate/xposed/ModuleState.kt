@@ -4,8 +4,12 @@ import android.os.IBinder
 
 /** Lives in the `android` (system_server) process. */
 object ModuleState {
-    /** Master switch, driven by the main app's SET_MODULE_ENABLED broadcast. */
-    @Volatile var enabled: Boolean = false
+    /**
+     * The hooks are only useful while the annotation layer runs, but a missed
+     * "enable" broadcast used to leave the whole module dead. Default to on and
+     * let the app switch it off when it stops; every hook is fail-open anyway.
+     */
+    @Volatile var enabled: Boolean = true
 
     /** True only when the app is in ROOT_SPLIT mode. */
     @Volatile var splitMode: Boolean = false

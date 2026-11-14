@@ -206,6 +206,7 @@ class AnnotationService : Service(),
         setActive(false)
         Session.service = this
         Session.canvas = canvas
+        com.globalannotate.app.mc.MiCanvasUi.init(this)
         startHelper()
         scope.launch {
             delay(3500)
@@ -595,19 +596,23 @@ class AnnotationService : Service(),
         val above = toolbarParams.y - lp.height - dp(10)
         lp.topMargin = if (above >= dp(12)) above else (toolbarParams.y - dp(8) - lp.height).coerceAtLeast(dp(12))
         panel.layoutParams = lp
-        Log.i(TAG, "panel ${panel.javaClass.simpleName} anchor=$anchorX left=${lp.leftMargin} " +
-            "top=${lp.topMargin} size=${lp.width}x${lp.height}")
-        panel.visibility = View.VISIBLE
-        openPanel = panel
-        popupHost.visibility = View.VISIBLE
-        Log.i(TAG, "host vis=${popupHost.visibility} panel vis=${panel.visibility} " +
-            "alpha=${panel.alpha} scale=${panel.scaleX} attached=${panel.isAttachedToWindow} " +
-            "hostAlpha=${popupParams.alpha}")
+        // Deterministic order: pose the panel, make the host visible, let one
+        // frame lay out, then play the enter animation. Starting the animator
+        // before the first layout used to leave the panel blank for a frame.
         panel.alpha = 0f
         panel.scaleX = 0.96f
         panel.scaleY = 0.96f
-        panel.animate().alpha(1f).scaleX(1f).scaleY(1f)
-            .setDuration(150).setInterpolator(PANEL_EASE).start()
+        panel.visibility = View.VISIBLE
+        panel.invalidate()
+        openPanel = panel
+        popupHost.visibility = View.VISIBLE
+        popupHost.invalidate()
+        panel.post {
+            if (openPanel === panel) {
+                panel.animate().alpha(1f).scaleX(1f).scaleY(1f)
+                    .setDuration(150).setInterpolator(PANEL_EASE).start()
+            }
+        }
         updateExclusion()
     }
 
