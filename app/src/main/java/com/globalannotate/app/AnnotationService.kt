@@ -521,6 +521,8 @@ class AnnotationService : Service(),
     override fun onTool(style: PenStyle, anchorX: Int) {
         val same = canvas.brush.style == style
         if (!same) {
+            // Mi Canvas: the first tap only selects the tool; its settings popup
+            // opens when the already-selected tool is tapped again.
             canvas.brush = canvas.brush.copy(
                 style = style,
                 size = style.defaultSize.toFloat(),
@@ -528,6 +530,8 @@ class AnnotationService : Service(),
                 sensitivity = if (style == PenStyle.PENCIL) 0f else 0.38f,
             )
             refreshToolbar()
+            closePanels()
+            return
         }
         if (style.isEraser) {
             eraserPanel.brush = canvas.brush
@@ -591,6 +595,8 @@ class AnnotationService : Service(),
         val above = toolbarParams.y - lp.height - dp(10)
         lp.topMargin = if (above >= dp(12)) above else (toolbarParams.y - dp(8) - lp.height).coerceAtLeast(dp(12))
         panel.layoutParams = lp
+        Log.i(TAG, "panel ${panel.javaClass.simpleName} anchor=$anchorX left=${lp.leftMargin} " +
+            "top=${lp.topMargin} size=${lp.width}x${lp.height}")
         panel.visibility = View.VISIBLE
         openPanel = panel
         popupHost.visibility = View.VISIBLE
