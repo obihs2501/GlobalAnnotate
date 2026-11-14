@@ -97,10 +97,9 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
                 isClickable = true
                 foreground = Ripple.rounded(context, dp(12).toFloat())
                 setOnClickListener { listener.onTool(style, centerOnScreen(this)) }
-                translationY = OUTWARD_DP * density
                 layoutParams = LinearLayout.LayoutParams(
                     dp(if (style == PenStyle.ERASER) LARGE_WIDTH_DP else PEN_WIDTH_DP),
-                    dp(PEN_HEIGHT_DP),
+                    dp(PEN_HEIGHT_DP + OUTWARD_DP),
                 ).apply {
                     if (style == PenStyle.toolbarOrder.first()) marginStart = dp(20)
                 }
@@ -149,7 +148,7 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         }
         row.addView(more)
 
-        addView(row, LayoutParams(MATCH, dp(CAPSULE_DP)))
+        addView(row, LayoutParams(MATCH, dp(WINDOW_HEIGHT_DP)))
     }
 
     // ── drawing ────────────────────────────────────────────────────────────
@@ -221,14 +220,14 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
      * sideways — the chosen brush simply retracts inward ("only shrinks
      * forward") and the others stay put.
      */
-    private fun settle(glyph: View, selected: Boolean) {
-        glyph.animate().cancel()
-        val target = if (selected) 0f else OUTWARD_DP * density
-        glyph.animate()
-            .translationY(target)
-            .setDuration(300)
-            .setInterpolator(android.view.animation.OvershootInterpolator(0.35f))
-            .start()
+    private fun settle(glyph: BrushGlyph, selected: Boolean) {
+        val from = glyph.artOffsetDp
+        val to = if (selected) 0f else OUTWARD_DP.toFloat()
+        val animator = android.animation.ValueAnimator.ofFloat(from, to)
+        animator.duration = 300
+        animator.interpolator = android.view.animation.OvershootInterpolator(0.35f)
+        animator.addUpdateListener { glyph.artOffsetDp = it.animatedValue as Float }
+        animator.start()
     }
 
     fun contentWidthPx(): Int {

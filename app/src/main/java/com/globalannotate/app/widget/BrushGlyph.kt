@@ -29,6 +29,19 @@ class BrushGlyph @JvmOverloads constructor(
     var checked: Boolean = false
         set(value) { field = value; invalidate() }
 
+    /**
+     * How far the pen pokes out of the capsule, in dp, drawn inside the view's
+     * own canvas. Mi Canvas moves the whole slot with a spring; animating a
+     * draw offset instead keeps the tail inside the window, so it can never be
+     * clipped at the parent edge.
+     */
+    var artOffsetDp: Float = 18f
+        set(value) { field = value; invalidate() }
+
+    /** Drawn length of the pen, independent of the slot's travel headroom. */
+    var artLengthDp: Float = 77f
+        set(value) { field = value; invalidate() }
+
     private val dst = RectF()
     private val tint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
 
@@ -74,6 +87,8 @@ class BrushGlyph @JvmOverloads constructor(
         val suffix = if (night) "_dark" else ""
         val name = prefix(style)
         if (style == PenStyle.ERASER) {
+            canvas.save()
+            canvas.translate(0f, artOffsetDp * resources.displayMetrics.density)
             val body = firstBitmap("pk_eraser_tool") ?: return
             // The eraser artwork is a white luminance mask; tint it so it has a
             // body on a white capsule, exactly like the original's rubber look.
@@ -86,8 +101,11 @@ class BrushGlyph @JvmOverloads constructor(
                 )
             }
             fit(body, w, h, canvas, eraserPaint)
+            canvas.restore()
             return
         }
+        canvas.save()
+        canvas.translate(0f, artOffsetDp * resources.displayMetrics.density)
         val body = firstBitmap("pk_${name}_body$suffix", "pk_${name}_body") ?: return
         fit(body, w, h, canvas, null)
         val head = firstBitmap("pk_${name}_head$suffix", "pk_${name}_head")
@@ -97,14 +115,15 @@ class BrushGlyph @JvmOverloads constructor(
         }
         val highlight = firstBitmap("pk_${name}_highlight$suffix", "pk_${name}_highlight")
         if (highlight != null) fit(highlight, w, h, canvas, null)
+        canvas.restore()
     }
 
     private fun fit(src: Bitmap, w: Float, h: Float, canvas: Canvas, paint: android.graphics.Paint?) {
         val ratio = src.width.toFloat() / src.height.toFloat()
-        val drawHeight = h
+        val drawHeight = (artLengthDp * resources.displayMetrics.density).coerceAtMost(h)
         val drawWidth = drawHeight * ratio
         val left = (w - drawWidth) / 2f
-        dst.set(left, 0f, left + drawWidth, h)
+        dst.set(left, 0f, left + drawWidth, drawHeight)
         canvas.drawBitmap(src, null, dst, paint)
     }
 }
