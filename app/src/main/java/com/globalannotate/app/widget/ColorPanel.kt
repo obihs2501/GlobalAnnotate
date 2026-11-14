@@ -197,13 +197,27 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
      */
     private fun updateShellBlock() {
         val view = shellBlock ?: return
-        val bg = view.background ?: return
-        bg.mutate().colorFilter = android.graphics.PorterDuffColorFilter(
-            Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color)),
-            android.graphics.PorterDuff.Mode.SRC,
-        )
-        view.invalidate()
+        val argb = Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
+        val bg = view.background
+        if (bg != null) {
+            bg.mutate().colorFilter = android.graphics.PorterDuffColorFilter(
+                argb, android.graphics.PorterDuff.Mode.SRC,
+            )
+            view.invalidate()
+        } else {
+            // Fallback: some builds put the shape only in the ImageView's src.
+            (view as? android.widget.ImageView)?.setColorFilter(argb)
+            view.background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = 16f * density
+                setColor(argb)
+            }
+        }
+        if (loggedBlock.compareAndSet(false, true)) {
+            Log.i(TAG, "shell block updated: ${view.javaClass.simpleName} bg=${bg != null}")
+        }
     }
+
+    private val loggedBlock = java.util.concurrent.atomic.AtomicBoolean(false)
     /**
      * Mi Canvas' own popup is the visible surface: its arrow, direction,
      * animation and measured geometry are exactly the reference. What is missing
