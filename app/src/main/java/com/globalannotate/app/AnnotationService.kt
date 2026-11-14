@@ -886,15 +886,19 @@ class AnnotationService : Service(),
         val eraserMode = runCatching {
             EraserMode.valueOf(p.getString(KEY_ERASER_MODE, EraserMode.PIXEL.name) ?: EraserMode.PIXEL.name)
         }.getOrDefault(EraserMode.PIXEL)
+        // Values may have been stored under a different type by older builds,
+        // so read them as numbers instead of trusting getInt/getFloat.
+        val all = p.all
+        fun num(key: String): Number? = all[key] as? Number
         canvas.brush = BrushConfig(
             style = style,
-            color = p.getInt(KEY_COLOR, Color.parseColor("#E8464A")),
-            size = p.getFloat(KEY_SIZE, style.defaultSize.toFloat()),
-            alpha = p.getInt(KEY_ALPHA, style.defaultAlpha),
-            sensitivity = p.getFloat(KEY_SENSITIVITY, 0.38f),
-            tipSize = p.getInt(KEY_TIP, 2),
+            color = num(KEY_COLOR)?.toInt() ?: Color.parseColor("#E8464A"),
+            size = num(KEY_SIZE)?.toFloat() ?: style.defaultSize.toFloat(),
+            alpha = num(KEY_ALPHA)?.toInt() ?: style.defaultAlpha,
+            sensitivity = num(KEY_SENSITIVITY)?.toFloat() ?: 0.38f,
+            tipSize = (num(KEY_TIP)?.toFloat() ?: 2f).toInt().coerceIn(1, 4),
             eraserMode = eraserMode,
-            eraserSize = p.getFloat(KEY_ERASER_SIZE, PenStyle.ERASER.defaultSize.toFloat()),
+            eraserSize = num(KEY_ERASER_SIZE)?.toFloat() ?: PenStyle.ERASER.defaultSize.toFloat(),
         )
     }
 
