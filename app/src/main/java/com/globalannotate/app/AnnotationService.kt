@@ -535,11 +535,11 @@ class AnnotationService : Service(),
         }
         if (style.isEraser) {
             eraserPanel.brush = canvas.brush
-            showPanel(eraserPanel, anchorX, dp(288), 0)
+            showPanel(eraserPanel, anchorX, dp(270), 0)
         } else {
             brushPanel.brush = canvas.brush
             brushPanel.updateColor(canvas.brush.color)
-            showPanel(brushPanel, anchorX, dp(288), 0)
+            showPanel(brushPanel, anchorX, dp(270), 0)
         }
     }
 
@@ -578,7 +578,7 @@ class AnnotationService : Service(),
     private fun showColorPanel(anchorX: Int) {
         colorPanel.color = canvas.brush.color
         colorPanel.setAlphaValue(canvas.brush.alpha)
-        showPanel(colorPanel, anchorX, dp(360), dp(571))
+        showPanel(colorPanel, anchorX, dp(338), dp(536))
     }
 
     private fun showPanel(panel: View, anchorX: Int, widthPx: Int, fixedHeightPx: Int) {

@@ -52,9 +52,9 @@ open class PickerBar @JvmOverloads constructor(
     protected val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val checkerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-    private val trackHeight get() = 12f * density
-    private val thumbRadius get() = 13f * density
-    private val ringWidth get() = 2.5f * density
+    private val trackHeight get() = 26f * density
+    private val thumbRadius get() = 12f * density
+    private val ringWidth get() = 3f * density
 
     /** Override to paint the track; the default is the neutral `pk_property_seekbar_bg`. */
     protected open fun drawTrack(canvas: Canvas, track: RectF, radius: Float) {
@@ -64,8 +64,9 @@ open class PickerBar @JvmOverloads constructor(
     }
 
     /** Override for a coloured thumb centre (the alpha slider shows the colour). */
-    protected open fun thumbCentreColor(): Int =
-        if (isNight()) Color.parseColor("#434343") else Color.parseColor("#EDEDED")
+    /** Transparent by default: the track itself shows through the ring, as in
+     *  Mi Canvas`SeekBarBaseView`. */
+    protected open fun thumbCentreColor(): Int = Color.TRANSPARENT
 
     protected open fun ringColor(): Int = Color.parseColor("#3482FF")
 
@@ -94,7 +95,10 @@ open class PickerBar @JvmOverloads constructor(
         trackRect.set(r, cy - th / 2f, width - r, cy + th / 2f)
         if (trackRect.right > trackRect.left) drawTrack(canvas, trackRect, th / 2f)
 
-        val cx = r + progress * (width - 2f * r)
+        // Mi Canvas maps progress across (width - height); the thumb can never
+        // stick out of the track.
+        val inset = th / 2f
+        val cx = inset + progress * (width - 2f * inset)
         thumbPaint.color = thumbCentreColor()
         canvas.drawCircle(cx, cy, r - ringWidth / 2f, thumbPaint)
         ringPaint.strokeWidth = ringWidth
@@ -124,8 +128,8 @@ open class PickerBar @JvmOverloads constructor(
     }
 
     private fun update(x: Float) {
-        val r = thumbRadius
-        progress = if (width <= 2 * r) 0f else (x - r) / (width - 2 * r)
+        val inset = trackHeight / 2f
+        progress = if (width <= 2 * inset) 0f else (x - inset) / (width - 2 * inset)
         onProgress?.invoke(progress)
     }
 
@@ -134,7 +138,7 @@ open class PickerBar @JvmOverloads constructor(
 
     /** Checkerboard, the Miuix way of showing transparency. */
     protected fun drawChecker(canvas: Canvas, track: RectF, radius: Float) {
-        val cell = track.height() / 2f
+        val cell = (track.height() / 3f).coerceAtLeast(2f * density)
         val saved = canvas.save()
         val path = android.graphics.Path().apply {
             addRoundRect(track, radius, radius, android.graphics.Path.Direction.CW)
