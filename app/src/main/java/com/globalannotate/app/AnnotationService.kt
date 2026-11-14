@@ -675,7 +675,10 @@ class AnnotationService : Service(),
     private fun showColorPanel(anchorX: Int) {
         colorPanel.color = canvas.brush.color
         colorPanel.setAlphaValue(canvas.brush.alpha)
-        showPanel(colorPanel, anchorX, dp(338), dp(536))
+        // Mi Canvas' dimens: 360dp wide, height clamped to
+        // `creation_color_picker_popup_height` (470dp) even though the layout
+        // declares 571dp.
+        showPanel(colorPanel, anchorX, dp(360), dp(470))
     }
 
     private fun showPanel(panel: View, anchorX: Int, widthPx: Int, fixedHeightPx: Int) {
