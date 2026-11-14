@@ -248,7 +248,7 @@ class AnnotationCanvasView(context: Context) : View(context) {
 
     private fun eraseStrokeAt(x: Float, y: Float) {
         val radius = widthFor(0.5f, 0f) * 0.9f
-        val cy = y + scrollOffset
+        val cy = y
         val index = strokes.indexOfLast { stroke ->
             !stroke.isEraser && stroke.points.any { p -> hypot(p.x - x, p.y - cy) < radius + p.width * 0.5f }
         }
@@ -278,7 +278,7 @@ class AnnotationCanvasView(context: Context) : View(context) {
             spare = ink
             val c = Canvas(shifted)
             c.drawColor(Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
-            c.drawBitmap(current, 0f, applied, null)
+            c.drawBitmap(current, 0f, -applied, null)
             ink = shifted
             inkCanvas = Canvas(shifted)
         }

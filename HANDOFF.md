@@ -76,3 +76,24 @@ adb exec-out screencap -p > shot.png
 - `BrushPanel` 回退路径传归一化值、Mi Canvas 路径传原始值，两条路径语义不一致 → 已统一为原始值。
 
 完整审查（HEAD~45..HEAD）由子代理执行中；其结论返回后会追加到本节。审查范围外的已知风险：长截图拼接对动态页面（视频/广告）可能接缝错位；`MiCanvasUi` 依赖已安装的小米创作，卸载后自动回退自带控件。
+
+
+### 完整审查 HEAD~45..HEAD（45 提交 / 181 文件，子代理结论）
+高严重度（未修，按此顺序处理）：
+1. `canvas/AnnotationCanvasView.kt:281` — 滚动快速路径把 ink 位图按 `+applied` 下移，90ms 后 `rebuildInk` 又按 `-scrollOffset` 上移，墨迹反向并回跳（本轮已改符号）。
+2. `canvas/AnnotationCanvasView.kt:251` — `eraseStrokeAt` 的 y 已经含 `scrollOffset`，函数里再加一次，滚动后笔画橡皮擦不中（本轮已改）。
+3. `AnnotationService.kt:814` — 截图失败时 `busyExporting` 不复位，之后导出/长截图静默失效。
+4. `AnnotationService.kt:227` — 服务被 START_STICKY 空 intent 重启时 `setActive(false)` 提前返回，窗口可见性/排除区未初始化，工具栏常驻且收不回。
+5. `AnnotationService.kt:248` — `onHelperReady` 不调用 `updateExclusion`，root 授权晚于激活时排除区为空，笔点工具栏被当画线。
+6. `AnnotationService.kt:816` — PNG 回退路径下 `createScaledBitmap` 可能返回原图，随后被 `recycle()` 再渲染，崩溃/空白导出。
+7. `AnnotationService.kt:220` — `setSkipScreenshot` 在首次 traversal 前调用返回 false 且不重试，root 截图仍含覆盖层（双重墨迹、吸管取 UI 颜色）。
+8. `root/HelperClient.kt:170` — `stop()` 发 QUIT 后立即 destroy，助手可能来不及恢复全局 `maximum_obscuring_opacity_for_touch`。
+9. `AnnotationService.kt:761` — "用手指涂画"选项无效：`applyInputMode` 不读 `fingerDraw`，`canvas.allowFinger` 从未赋值。
+10. `AnnotationService.kt:701` — 排除区只处理 ROTATION_90，且屏幕尺寸仅 onCreate 取一次，其他方向下工具栏被笔输入吞掉。
+11. `AnnotationService.kt:890` — 长截图提前返回时高图未回收。
+12. `Exporter.kt:113` — `rawDecode` 假定 12 字节头在偏移 0，`su` 前缀会让 raw 解码失败（旧代码有跳过前缀逻辑，需恢复）。
+13. `export/LongCapture.kt:81` — 达到 MAX_HEIGHT 返回原图时未 `recycle(next)`，持续泄漏。
+14. `widget/ColorPanel.kt:170` — 反射 `setColor/getCurrentColor` 无签名扫描回退，内置色板可能永不生效（应走 `McBridge`）。
+15. `AnnotationService.kt:669` — 关闭面板 150ms 的 `withEndAction` 会把刚重新打开的 `popupHost` 置 GONE，快速开合闪隐。
+
+已知风险（审查范围外）：长截图对动态页面可能接缝错位；`MiCanvasUi` 依赖已安装的小米创作，卸载后回退自带控件。
