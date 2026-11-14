@@ -123,6 +123,16 @@ object MiCanvasUi {
             // ContextWrapper.getApplicationContext() returns null and Mi Canvas'
             // picker manager NPEs on it. This wrapper is a complete context.
             override fun getApplicationContext(): Context = this
+            // The system's own inflater belongs to the package context, whose
+            // class loader has no dex (code from another app is not included), so
+            // <view class="com.xiaomi..."> could not be resolved. Clone it onto a
+            // context that carries Mi Canvas' loader and resources.
+            private val inflater: LayoutInflater by lazy {
+                LayoutInflater.from(base).cloneInContext(this)
+            }
+
+            override fun getSystemService(name: String): Any? =
+                if (name == Context.LAYOUT_INFLATER_SERVICE) inflater else base.getSystemService(name)
         }
         val theme = info.theme
         // ContextThemeWrapper keeps the base's class loader and resources, and
