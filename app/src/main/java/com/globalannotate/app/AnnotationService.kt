@@ -167,13 +167,15 @@ class AnnotationService : Service(),
 
         toolbar = ToolbarView(this, this).apply { dragListener = this@AnnotationService }
         orb = BrushGlyph(this).apply {
-            // Official ball (user reference, Mi Canvas 4.1.8 on this tablet): the
-            // brush fills the disc — nib at the top edge, barrel base at the
-            // bottom edge. The disc is 96dp, so the artwork is drawn at 96dp too;
-            // the earlier 70.8dp head height left it at ~69% and read too small.
+            // Measured on Mi Canvas 4.1.8 on this tablet (screencap, bottom-right
+            // ball): disc 248px = 90dp, brush artwork 198px = 72dp — i.e. the
+            // brush is ~79% of the disc and centred, which is exactly its own
+            // `creation_brush_head_height_1_2` (70.8dp) head height. Filling the
+            // disc was wrong: the official ball keeps that margin.
             artOffsetDp = 0f
             centreVertically = true
-            artLengthDp = ORB_SIZE_DP.toFloat()
+            artLengthDp = MiCanvasUi.dimension("creation_brush_head_height_1_2")
+                .takeIf { it > 0 }?.let { it / resources.displayMetrics.density } ?: 70.8f
             artScale = 1f
             val capsule = androidx.core.content.ContextCompat.getColor(
                 this@AnnotationService, R.color.penpicker_background_color,
@@ -1464,8 +1466,8 @@ class AnnotationService : Service(),
         private const val NOTIFICATION_ID = 42
         private const val CHANNEL_ID = "global_annotate"
         private const val BAR_HEIGHT_DP = ToolbarView.WINDOW_HEIGHT_DP
-        /** Minimised brush ball, matching Mi Canvas' floating disc. */
-        private const val ORB_SIZE_DP = 96
+        /** Official floating ball: 248px on this 2.75-density tablet, i.e. 90dp. */
+        private const val ORB_SIZE_DP = 90
         private const val MAX_LONG_SCREENS = 12
         private const val MATCH = WindowManager.LayoutParams.MATCH_PARENT
         private const val WRAP = WindowManager.LayoutParams.WRAP_CONTENT

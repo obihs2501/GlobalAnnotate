@@ -32,7 +32,7 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
     private val bodyColor = ContextCompat.getColor(context, R.color.penpicker_pen_set_text)
     private val subColor = if (night()) Color.parseColor("#B3FFFFFF").toInt() else Color.parseColor("#99000000").toInt()
     private val optionBg = if (night()) Color.argb(26, 255, 255, 255) else Color.argb(8, 0, 0, 0)
-
+    private var scroller: ScrollView? = null
     private val rows = LinkedHashMap<Gesture, Row>()
     private var expanded: Gesture? = null
 
@@ -71,6 +71,7 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
             isVerticalScrollBarEnabled = false
             overScrollMode = View.OVER_SCROLL_NEVER
         }
+        this.scroller = scroller
         val list = LinearLayout(context).apply { orientation = VERTICAL }
         scroller.addView(list, LayoutParams(MATCH, WRAP))
         addView(scroller, LinearLayout.LayoutParams(MATCH, 0, 1f))
@@ -126,20 +127,23 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
                     isClickable = true
                     setOnClickListener { choose(gesture, action) }
                 }
-                option.addView(TextView(context).apply {
-                    text = actionLabel(action)
-                    textSize = 14f
-                    includeFontPadding = false
-                    setTextColor(bodyColor)
-                }, LinearLayout.LayoutParams(0, MATCH, 1f))
+                // Miuix puts the check mark in the leading position, so the
+                // selected row is obvious without scrolling to the row's tail.
                 val mark = TextView(context).apply {
                     text = "✓"
                     textSize = 16f
                     includeFontPadding = false
                     setTextColor(accent)
                     tag = action
+                    setPadding(0, 0, dp(12), 0)
                 }
                 option.addView(mark, LinearLayout.LayoutParams(WRAP, WRAP))
+                option.addView(TextView(context).apply {
+                    text = actionLabel(action)
+                    textSize = 14f
+                    includeFontPadding = false
+                    setTextColor(bodyColor)
+                }, LinearLayout.LayoutParams(0, MATCH, 1f))
                 options.addView(option, LinearLayout.LayoutParams(MATCH, dp(44)))
             }
             list.addView(options, LinearLayout.LayoutParams(MATCH, WRAP).apply {
@@ -160,6 +164,23 @@ class GesturePanel(context: Context, private val listener: Listener) : LinearLay
         // Let the host re-measure: the dropdown changes the panel's height.
         (parent as? View)?.requestLayout()
         requestLayout()
+        // Bring the freshly opened list into view; the panel is a fixed-height
+        // card and the group sat below the fold.
+        if (expanded == gesture) {
+            val options = rows[gesture]?.options ?: return
+            scroller?.post {
+                val target = (options.parent as? View)?.let { list ->
+                    var y = 0
+                    var child: View? = options
+                    while (child != null && child !== list) {
+                        y += child.top
+                        child = child.parent as? View
+                    }
+                    y
+                } ?: 0
+                scroller?.smoothScrollTo(0, (target - dp(8)).coerceAtLeast(0))
+            }
+        }
     }
 
     private fun choose(gesture: Gesture, action: GestureAction) {
