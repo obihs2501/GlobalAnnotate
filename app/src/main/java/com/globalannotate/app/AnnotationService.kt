@@ -785,7 +785,9 @@ class AnnotationService : Service(),
             lp.width = tool.width()
             lp.height = tool.height()
             lp.leftMargin = tool.left
-            lp.topMargin = tool.top
+            // popupHost starts below the status bar, while the tool rect is in
+            // screen space; without the inset the proxy sits 90px too low.
+            lp.topMargin = (tool.top - popupHostInsetTop()).coerceAtLeast(0)
             anchor.layoutParams = lp
         }
         anchor.requestLayout()
@@ -803,10 +805,23 @@ class AnnotationService : Service(),
                 updateExclusion()
             }
         }
-        // Full Mi Canvas layout height (571dp), clamped only to the space above
-        // the bar. A fixed 470dp cut off the opacity label, recent colours and
-        // the 13th grid column.
-        if (!shell.show(anchor, width, height)) {
+        // Keep the measured surface fully on screen: the original presenter did
+        // this with its own offset maths, which is not instantiable here. Without
+        // it a tool in the bar's right half pushed the popup off the right edge.
+        val loc = IntArray(2)
+        anchor.getLocationOnScreen(loc)
+        val anchorLeft = loc[0]
+        val anchorTop = loc[1]
+        val anchorBottom = anchorTop + anchor.height
+        val margin = dp(8)
+        val desiredX = (anchorLeft + anchor.width / 2 - width / 2)
+            .coerceIn(margin, (screenWidth - width - margin).coerceAtLeast(margin))
+        val above = anchorTop - height - dp(10)
+        val desiredY = if (above >= dp(24)) above else anchorBottom + dp(10)
+        val dx = desiredX - anchorLeft
+        val dy = desiredY - anchorBottom
+        Log.i(TAG, "shell place anchor=$anchorLeft,$anchorTop size=${width}x$height dx=$dx dy=$dy")
+        if (!shell.show(anchor, width, height, dx, dy)) {
             openShell = null
             popupHost.visibility = View.GONE
         }
@@ -856,6 +871,13 @@ class AnnotationService : Service(),
             }
         }
         updateExclusion()
+    }
+
+    /** Window inset of popupHost: its top sits below the status bar. */
+    private fun popupHostInsetTop(): Int {
+        val loc = IntArray(2)
+        popupHost.getLocationOnScreen(loc)
+        return loc[1] - popupParams.y
     }
 
     private fun measurePanel(panel: View, widthPx: Int) {
