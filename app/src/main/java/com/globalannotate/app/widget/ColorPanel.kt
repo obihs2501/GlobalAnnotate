@@ -51,6 +51,8 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
     private var remoteContent: View? = null
     /** The whole original arrow subtree, when Mi Canvas' popup could be lifted. */
     private var remoteShell: MiCanvasPopupShell? = null
+    /** Mi Canvas' own `penpicker_display_block` inside the shell, if it was found. */
+    private var shellBlock: View? = null
     private var remoteSetColour: java.lang.reflect.Method? = null
     /** Guards the colour setter while a change comes from Mi Canvas itself. */
     private var remoteEcho = false
@@ -182,7 +184,25 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
         gridAlphaValue.text = text
         sliderAlphaValue.text = text
         block.color = Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
+        updateShellBlock()
+
         listener.onAlpha(alpha)
+    }
+
+    /**
+     * Repaint Mi Canvas' own display block. It is an `ImageView` whose shape is a
+     * background drawable, and the presenter normally tints it with a
+     * `PorterDuffColorFilter`; without that it kept its default colour while the
+     * grid selection moved.
+     */
+    private fun updateShellBlock() {
+        val view = shellBlock ?: return
+        val bg = view.background ?: return
+        bg.mutate().colorFilter = android.graphics.PorterDuffColorFilter(
+            Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color)),
+            android.graphics.PorterDuff.Mode.SRC,
+        )
+        view.invalidate()
     }
     /**
      * Mi Canvas' own popup is the visible surface: its arrow, direction,
@@ -205,6 +225,9 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
             remoteActive = true
             bindShellOpacityRails(shell)
             bindShellRecentColors(shell)
+            val blockId = MiCanvasUi.id("penpicker_display_block")
+            shellBlock = if (blockId != 0) shell.root.findViewById(blockId) else null
+            updateShellBlock()
             // The straw runs our own screen picker instead of their floating one.
             findInTree(shell.root) { it.javaClass.name == MC_STRAW }?.setOnClickListener {
                 listener.onPipette()
@@ -554,6 +577,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
     private fun syncViews(fromGrid: Boolean) {
         setBoardColor(color)
         block.color = Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
+        updateShellBlock()
         val pureHue = Color.HSVToColor(floatArrayOf(hsv[0], 1f, 1f))
         val pureSat = Color.HSVToColor(floatArrayOf(hsv[0], hsv[1].coerceAtLeast(0.001f), 1f))
         if (fromGrid) {
@@ -611,6 +635,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
         gridAlphaValue.text = text
         sliderAlphaValue.text = text
         block.color = Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
+        updateShellBlock()
         if (remoteActive) pushRemote(color)
     }
     private inner class Swatch(val color: Int) : View(context) {
