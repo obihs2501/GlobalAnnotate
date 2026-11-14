@@ -85,8 +85,6 @@ class AnnotationService : Service(),
     private lateinit var dismissLayer: View
     private lateinit var palette: RadialPaletteView
     private lateinit var paletteParams: WindowManager.LayoutParams
-    private lateinit var fingerSpy: View
-    private lateinit var fingerSpyParams: WindowManager.LayoutParams
 
     private lateinit var colorPanel: ColorPanel
     private lateinit var brushPanel: BrushPanel
@@ -117,9 +115,6 @@ class AnnotationService : Service(),
     private var squeezeCount = 0
     private var lastSqueezeMs = 0L
     private var busyExporting = false
-    /** True once the spy window has delivered a finger event; the helper copy is
-     *  then redundant. */
-    private var spyWorks = false
 
     override fun onCreate() {
         super.onCreate()
@@ -146,13 +141,6 @@ class AnnotationService : Service(),
             if (event.actionMasked == MotionEvent.ACTION_DOWN) closePanels()
             canvas.injectStylusEvent(event)
             true
-        }
-        fingerSpy = View(this).apply {
-            setOnTouchListener { _, event ->
-                spyWorks = true
-                dispatchFinger(event)
-                false
-            }
         }
 
         toolbar = ToolbarView(this, this).apply { dragListener = this@AnnotationService }
@@ -191,9 +179,6 @@ class AnnotationService : Service(),
         canvasParams = overlay(MATCH, MATCH, helperFlags).apply {
             Hidden.setInputFeatures(this, FEATURE_INTERCEPTS_STYLUS)
         }
-        fingerSpyParams = overlay(MATCH, MATCH, helperFlags).apply {
-            Hidden.setInputFeatures(this, FEATURE_SPY)
-        }
         val barWidth = toolbar.contentWidthPx().coerceAtLeast(dp(360))
         toolbarParams = overlay(barWidth, dp(BAR_HEIGHT_DP), base).apply {
             x = prefs.getInt(KEY_BAR_X, -1).let { if (it >= 0) it else (screenWidth - barWidth) / 2 }
@@ -207,7 +192,6 @@ class AnnotationService : Service(),
         popupParams = overlay(MATCH, MATCH, base)
         paletteParams = overlay(MATCH, MATCH, helperFlags)
 
-        windowManager.addView(fingerSpy, fingerSpyParams)
         windowManager.addView(canvas, canvasParams)
         windowManager.addView(orb, orbParams)
         windowManager.addView(toolbar, toolbarParams)
@@ -254,9 +238,7 @@ class AnnotationService : Service(),
                 // The interceptor window receives the pen itself; a helper copy
                 // would draw every stroke twice.
             }
-            override fun onFinger(event: MotionEvent) {
-                if (!spyWorks) dispatchFinger(event)
-            }
+            override fun onFinger(event: MotionEvent) = dispatchFinger(event)
             override fun onPenKey(scanCode: Int, value: Int, uptimeMs: Long) =
                 dispatchPenKey(scanCode, value)
 
@@ -981,7 +963,7 @@ class AnnotationService : Service(),
         notifyModule(Actions.SET_MODULE_ENABLED, false)
         helper?.stop()
         helper = null
-        (listOf(fingerSpy, canvas, toolbar, orb, popupHost, palette)).forEach { view ->
+        (listOf(canvas, toolbar, orb, popupHost, palette)).forEach { view ->
             if (view.isAttachedToWindow) runCatching { windowManager.removeView(view) }
         }
         if (Session.service === this) Session.service = null
@@ -1001,8 +983,6 @@ class AnnotationService : Service(),
         private const val MAX_LONG_SCREENS = 12
         /** `LayoutParams.INPUT_FEATURE_INTERCEPTS_STYLUS` (hidden constant). */
         private const val FEATURE_INTERCEPTS_STYLUS = 0x40000000
-        /** `LayoutParams.INPUT_FEATURE_SPY` (hidden constant). */
-        private const val FEATURE_SPY = 4
         private const val MATCH = WindowManager.LayoutParams.MATCH_PARENT
         private const val WRAP = WindowManager.LayoutParams.WRAP_CONTENT
         private val PANEL_EASE = PathInterpolator(0f, 0f, 0.2f, 1f)
