@@ -873,7 +873,10 @@ class AnnotationService : Service(),
                 expandBar()
                 showColorPanel(dp(300))
                 // Re-enable the panel in screenshots so the probe can be checked.
-                Hidden.setSkipScreenshot(popupHost, false)
+                val unexcluded = Hidden.setSkipScreenshot(popupHost, false)
+                val at = IntArray(2)
+                colorPanel.getLocationOnScreen(at)
+                Log.i(TAG, "MCPOPUP unexclude=$unexcluded alpha=${colorPanel.alpha} at=${at[0]},${at[1]}")
                 colorPanel.postDelayed({
                     Log.i(TAG, "MCPOPUP panel=${colorPanel.width}x${colorPanel.height}")
                     dumpTree(colorPanel, "MCPOPUP")
