@@ -5,207 +5,135 @@ import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
-import android.view.ViewGroup.LayoutParams.MATCH_PARENT
-import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
+import com.globalannotate.app.Gesture
 import com.globalannotate.app.GestureAction
 import com.globalannotate.app.R
 
 /**
- * Pen-barrel gesture mapping. Mi Canvas has no equivalent screen, so this
- * follows the Miuix specification instead of the pen-picker popups:
- *  - dialog surface: `DialogDefaults.CornerRadius` = 32dp, 320dp wide
- *  - 24dp content padding, 56dp rows, 0.5dp `dividerLine` hairlines
- *  - title / row / value use the Miuix title + body roles (20 / 16 / 14sp)
- *  - muted secondary text uses the summary role (60% onSurface)
- *  - ripple feedback, and the action list expands inline with a check mark
+ * Pen-gesture mapping. Mi Canvas has no such screen, so this follows Miuix:
+ * a 288dp card with a 36dp radius, 56dp rows, 14sp labels and a 32dp-radius
+ * press state. Tapping a row cycles to the next action.
  */
-class GesturePanel(context: Context, private val listener: Listener) : android.widget.FrameLayout(context) {
+class GesturePanel(context: Context, private val listener: Listener) : LinearLayout(context) {
 
     interface Listener {
         fun onAction(gesture: String, action: GestureAction)
-        fun onExpandedChanged()
-        fun onClose()
     }
-
-    /** Only the actions that make sense from the pen barrel. */
-    private val shownActions = listOf(
-        GestureAction.NONE,
-        GestureAction.TOGGLE_TOOLBAR,
-        GestureAction.TOGGLE_OVERLAY,
-        GestureAction.TOGGLE_ERASER,
-        GestureAction.CYCLE_TOOL,
-        GestureAction.OPEN_COLOR,
-        GestureAction.CYCLE_COLOR,
-        GestureAction.UNDO,
-        GestureAction.REDO,
-        GestureAction.CLEAR,
-        GestureAction.INCREASE_WIDTH,
-        GestureAction.DECREASE_WIDTH,
-    )
-
-    private val gestures = listOf(
-        "SQUEEZE" to "轻捏笔身",
-        "DOUBLE_TAP" to "双击笔身",
-        "SLIDE_UP" to "笔身上滑",
-        "SLIDE_DOWN" to "笔身下滑",
-    )
 
     private val density = resources.displayMetrics.density
-    private val current = mutableMapOf<String, GestureAction>()
-    private val valueViews = mutableMapOf<String, TextView>()
-    private val listViews = mutableMapOf<String, LinearLayout>()
-    private val expanded = mutableSetOf<String>()
+    private val rows = LinkedHashMap<Gesture, Row>()
 
-    private val content = LinearLayout(context).apply {
-        orientation = LinearLayout.VERTICAL
-    }
+    private data class Row(val title: TextView, val action: TextView, val view: View)
+
+    var actions: Map<String, GestureAction> = emptyMap()
+        set(value) {
+            field = value
+            refresh()
+        }
 
     init {
+        orientation = VERTICAL
         background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(32).toFloat()
-            setColor(ContextCompat.getColor(context, R.color.ga_panel_bg))
+            setColor(ContextCompat.getColor(context, R.color.penpicker_background_color))
+            cornerRadius = 36f * density
         }
-        elevation = dp(8).toFloat()
-        setPadding(dp(24), dp(24), dp(24), dp(16))
-        layoutParams = LayoutParams(dp(320), WRAP_CONTENT)
+        setPadding(dp(20), dp(20), dp(20), dp(20))
 
-        // The list can outgrow the popup, so it scrolls like any Miuix dialog.
-        addView(
-            android.widget.ScrollView(context).apply {
-                isVerticalScrollBarEnabled = false
-                overScrollMode = OVER_SCROLL_NEVER
-                addView(content, LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-            },
-            LayoutParams(MATCH_PARENT, WRAP_CONTENT),
-        )
-
-        content.addView(TextView(context).apply {
+        addView(TextView(context).apply {
             text = "笔身手势"
             textSize = 20f
             includeFontPadding = false
-            setTextColor(ContextCompat.getColor(context, R.color.ga_text_title))
-        }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT).apply {
-            bottomMargin = dp(8)
-        })
+            setTextColor(ContextCompat.getColor(context, R.color.penpicker_colorpicker_text_title))
+            typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.NORMAL)
+        }, LinearLayout.LayoutParams(MATCH, WRAP).apply { bottomMargin = dp(12) })
 
-        for ((key, label) in gestures) addGestureRow(key, label)
+        for (gesture in Gesture.entries) {
+            val row = LinearLayout(context).apply {
+                orientation = HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(16), 0, dp(16), 0)
+                background = ripple()
+                isClickable = true
+                setOnClickListener { cycle(gesture) }
+            }
+            val title = TextView(context).apply {
+                text = gestureLabel(gesture)
+                textSize = 16f
+                includeFontPadding = false
+                setTextColor(ContextCompat.getColor(context, R.color.penpicker_pen_set_text))
+            }
+            val action = TextView(context).apply {
+                textSize = 14f
+                includeFontPadding = false
+                gravity = Gravity.END
+                setTextColor(Color.parseColor("#3482FF"))
+            }
+            row.addView(title, LinearLayout.LayoutParams(0, MATCH, 1f))
+            row.addView(action, LinearLayout.LayoutParams(WRAP, MATCH).apply { })
+            addView(row, LinearLayout.LayoutParams(MATCH, dp(56)))
+            rows[gesture] = Row(title, action, row)
+        }
+        refresh()
     }
 
-    fun setActions(map: Map<String, GestureAction>) {
-        current.putAll(map)
-        current.forEach { (k, v) ->
-            valueViews[k]?.text = labelOf(v)
-            refreshChecks(k)
-        }
+    private fun cycle(gesture: Gesture) {
+        val current = actions[gesture.name] ?: defaultFor(gesture)
+        val order = GestureAction.entries
+        val next = order[(order.indexOf(current) + 1) % order.size]
+        actions = actions + (gesture.name to next)
+        listener.onAction(gesture.name, next)
+        refresh()
     }
 
-    private fun addGestureRow(key: String, label: String) {
-        val header = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            isClickable = true
-            setPadding(0, dp(16), 0, dp(16))
-            foreground = Ripple.rounded(context, dp(16).toFloat())
-        }
-        header.addView(TextView(context).apply {
-            text = label
-            textSize = 16f
-            includeFontPadding = false
-            setTextColor(ContextCompat.getColor(context, R.color.ga_text_primary))
-            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
-        })
-        val value = TextView(context).apply {
-            text = labelOf(current[key] ?: GestureAction.NONE)
-            textSize = 14f
-            includeFontPadding = false
-            setTextColor(ContextCompat.getColor(context, R.color.ga_text_hint))
-        }
-        header.addView(value)
-        valueViews[key] = value
-
-        val list = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            visibility = View.GONE
-        }
-        for (action in shownActions) list.addView(actionRow(key, action))
-        listViews[key] = list
-
-        header.setOnClickListener {
-            val show = !expanded.contains(key)
-            if (show) expanded.add(key) else expanded.remove(key)
-            list.visibility = if (show) View.VISIBLE else View.GONE
-            listener.onExpandedChanged()
-        }
-
-        content.addView(header, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-        content.addView(list, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
-        content.addView(hairline(), LinearLayout.LayoutParams(MATCH_PARENT, 1))
-    }
-
-    private fun actionRow(gesture: String, action: GestureAction): View {
-        val row = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            isClickable = true
-            setPadding(dp(12), dp(12), dp(4), dp(12))
-            foreground = Ripple.rounded(context, dp(12).toFloat())
-        }
-        val check = TextView(context).apply {
-            text = ""
-            textSize = 16f
-            setTextColor(ContextCompat.getColor(context, R.color.ga_accent))
-            tag = action
-        }
-        row.addView(TextView(context).apply {
-            text = labelOf(action)
-            textSize = 16f
-            includeFontPadding = false
-            setTextColor(ContextCompat.getColor(context, R.color.ga_text_primary))
-            layoutParams = LinearLayout.LayoutParams(0, WRAP_CONTENT, 1f)
-        })
-        row.addView(check)
-        row.setOnClickListener {
-            current[gesture] = action
-            valueViews[gesture]?.text = labelOf(action)
-            refreshChecks(gesture)
-            listener.onAction(gesture, action)
-        }
-        row.tag = check
-        return row
-    }
-
-    private fun refreshChecks(gesture: String) {
-        val list = listViews[gesture] ?: return
-        val selected = current[gesture] ?: GestureAction.NONE
-        for (i in 0 until list.childCount) {
-            val row = list.getChildAt(i) as? LinearLayout ?: continue
-            val check = row.tag as? TextView ?: continue
-            check.text = if (check.tag == selected) "✓" else ""
+    private fun refresh() {
+        for ((gesture, row) in rows) {
+            val action = actions[gesture.name] ?: defaultFor(gesture)
+            row.action.text = actionLabel(action)
         }
     }
 
-    private fun hairline(): View = View(context).apply {
-        setBackgroundColor(ContextCompat.getColor(context, R.color.ga_divider))
+    private fun gestureLabel(gesture: Gesture): String = when (gesture) {
+        Gesture.SQUEEZE -> "轻捏笔身"
+        Gesture.DOUBLE_TAP -> "双击笔身"
+        Gesture.SLIDE_UP -> "笔身上滑"
+        Gesture.SLIDE_DOWN -> "笔身下滑"
     }
 
-    private fun labelOf(action: GestureAction): String = when (action) {
+    private fun defaultFor(gesture: Gesture): GestureAction = when (gesture) {
+        Gesture.SQUEEZE -> GestureAction.OPEN_PALETTE
+        Gesture.DOUBLE_TAP -> GestureAction.TOGGLE_ERASER
+        Gesture.SLIDE_UP -> GestureAction.INCREASE_WIDTH
+        Gesture.SLIDE_DOWN -> GestureAction.DECREASE_WIDTH
+    }
+
+    private fun actionLabel(action: GestureAction): String = when (action) {
         GestureAction.NONE -> "无"
-        GestureAction.TOGGLE_OVERLAY -> "显示 / 收起批注"
-        GestureAction.TOGGLE_ERASER -> "笔 ↔ 橡皮"
+        GestureAction.TOGGLE_OVERLAY -> "显示/隐藏批注"
+        GestureAction.TOGGLE_ERASER -> "笔/橡皮"
         GestureAction.CYCLE_TOOL -> "切换笔刷"
         GestureAction.UNDO -> "撤销"
         GestureAction.REDO -> "重做"
         GestureAction.CLEAR -> "清空"
         GestureAction.INCREASE_WIDTH -> "加粗"
         GestureAction.DECREASE_WIDTH -> "变细"
-        GestureAction.TOGGLE_TOOLBAR -> "收起工具栏"
-        GestureAction.OPEN_COLOR -> "打开调色板"
-        GestureAction.CYCLE_COLOR -> "切换颜色"
+        GestureAction.TOGGLE_TOOLBAR -> "收起/展开工具栏"
+        GestureAction.OPEN_COLOR -> "打开调色盘"
+        GestureAction.CYCLE_COLOR -> "换颜色"
+        GestureAction.OPEN_PALETTE -> "笔尖工具盘"
+    }
+
+    private fun ripple() = GradientDrawable().apply {
+        setColor(Color.TRANSPARENT)
+        cornerRadius = 32f * density
     }
 
     private fun dp(value: Int): Int = (value * density).toInt()
+
+    private companion object {
+        const val MATCH = LayoutParams.MATCH_PARENT
+        const val WRAP = LayoutParams.WRAP_CONTENT
+    }
 }

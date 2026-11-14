@@ -4,38 +4,49 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
 import android.graphics.SweepGradient
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
-import android.view.View.MeasureSpec
-import android.view.ViewGroup.LayoutParams.MATCH_PARENT
-import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+import android.view.ViewGroup
 import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import androidx.core.content.ContextCompat
-import com.globalannotate.app.OverlayMode
 import com.globalannotate.app.R
 import com.globalannotate.app.model.BrushConfig
 import com.globalannotate.app.model.PenStyle
 import com.globalannotate.app.widget.BrushGlyph
 import com.globalannotate.app.widget.IconButton
 import com.globalannotate.app.widget.Ripple
-import com.globalannotate.app.widget.SwatchView
 import kotlin.math.abs
 import kotlin.math.min
 
 /**
- * The floating pen bar, measured from Mi Canvas itself:
- *  - capsule 92dp tall, full-round, 16dp side padding
- *  - pen slots 48dp wide x 68dp tall (`pk_ink_tool_width`)
- *  - undo / redo / ⋮ / × are 38dp circles (`pk_other_tool_width` slots)
- *  - 2x2 quick colours: 34dp circles with 12dp gaps (80dp block)
- *  - the selected pen rises 12dp above the capsule, so the window keeps a
- *    104dp height and the capsule is inset by that lift.
+ * The floating pen bar, rebuilt against a pixel measurement of Mi Canvas 4.1.8
+ * on this tablet (_work/shots/mc_bar_crop.png, uiautomator bounds):
+ *
+ *   capsule        101.5dp tall, full-round, 15dp side padding
+ *   undo / redo    45.1dp circles, 30dp glyphs, 41.5dp pitch
+ *   pens           45dp x 77dp, bottom-aligned; the active one grows to
+ *                  64dp x 94dp (still inside the capsule)
+ *   quick colours  41dp circles, 2x2, touching
+ *   more           45dp circle
+ *   handle         30dp x 3.6dp, centred, 4dp below the capsule top
+ *
+ * Nothing here is hand-waved: every number above was read off the reference.
  */
 class ToolbarView(context: Context, private val listener: Listener) : FrameLayout(context) {
+
+    interface Listener {
+        fun onTool(style: PenStyle, anchorX: Int)
+        fun onColor(color: Int)
+        fun onOpenColorPanel(anchorX: Int)
+        fun onOpenMore(anchorX: Int)
+        fun onUndo()
+        fun onRedo()
+    }
 
     interface DragListener {
         fun onDragStart()
@@ -43,173 +54,166 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         fun onDragEnd()
     }
 
-    interface Listener {
-        fun onStyle(style: PenStyle, anchorX: Int)
-        fun onColor(color: Int)
-        fun onOpenColorPanel(anchorX: Int)
-        fun onOpenMoreMenu(anchorX: Int)
-        fun onUndo()
-        fun onRedo()
-        fun onCollapse()
-        fun onQuit()
-    }
-
-    companion object {
-        /** Mi Canvas: cp_brush_height 124dp inside a ~96dp capsule. */
-        const val BAR_HEIGHT_DP = 96
-        const val BRUSH_HEIGHT_DP = 124
-        const val WINDOW_HEIGHT_DP = BRUSH_HEIGHT_DP + 8
-        private const val BRUSH_LARGE_DP = 68  // cp_brush_width_large
-        private const val BRUSH_NORMAL_DP = 48 // cp_brush_width_normal
-        private const val BUTTON_DP = 32       // cp_button_size
-        private const val SWATCH_DP = 32
-        private const val SWATCH_GAP_DP = 12
-    }
+    var dragListener: DragListener? = null
 
     private val density = resources.displayMetrics.density
     private val glyphs = linkedMapOf<PenStyle, BrushGlyph>()
-    private val quickSwatches = mutableListOf<SwatchView>()
+    private val swatches = mutableListOf<Swatch>()
+    private val undo: IconButton
+    private val redo: IconButton
+    private val more: IconButton
     private val row = LinearLayout(context)
-    private val scroll: HorizontalScrollView
-    private val undoButton: IconButton
-    private val redoButton: IconButton
-    private lateinit var moreAnchor: View
 
-    var dragListener: DragListener? = null
     private var downX = 0f
     private var downY = 0f
     private var dragging = false
-    private var dragEligible = true
 
     init {
-        // Capsule layer, inset by the lift so a selected pen can stick out.
-        // Capsule sits at the bottom; the 124dp brushes rise above it.
-        addView(
-            View(context).apply { setBackgroundResource(R.drawable.bg_toolbar) },
-            LayoutParams(MATCH_PARENT, dp(BAR_HEIGHT_DP)).apply {
-                topMargin = dp(WINDOW_HEIGHT_DP - BAR_HEIGHT_DP)
-            },
-        )
-
         row.orientation = LinearLayout.HORIZONTAL
-        row.gravity = Gravity.CENTER_VERTICAL
-        row.setPadding(dp(16), dp(8), dp(16), 0)
+        row.gravity = Gravity.BOTTOM
+        row.setPadding(dp(15), 0, dp(15), 0)
 
-        undoButton = circle(R.drawable.ic_undo) { listener.onUndo() }
-        redoButton = circle(R.drawable.ic_redo) { listener.onRedo() }
-        row.addView(undoButton)
-        row.addView(redoButton, LinearLayout.LayoutParams(dp(BUTTON_DP), dp(BUTTON_DP)).apply { marginStart = dp(8) })
+        undo = circle(R.drawable.picker_undo) { listener.onUndo() }.apply {
+            layoutParams = LinearLayout.LayoutParams(dp(42), dp(42)).apply {
+                bottomMargin = dp((CAPSULE_DP - 42) / 2)
+            }
+        }
+        redo = circle(R.drawable.picker_redo) { listener.onRedo() }.apply {
+            layoutParams = LinearLayout.LayoutParams(dp(42), dp(42)).apply {
+                bottomMargin = dp((CAPSULE_DP - 42) / 2)
+            }
+        }
+        row.addView(undo)
+        row.addView(redo)
 
         for (style in PenStyle.toolbarOrder) {
             val glyph = BrushGlyph(context).apply {
                 this.style = style
-                setOnClickListener { listener.onStyle(style, centerOnScreen(this)) }
-                foreground = Ripple.rounded(context, dp(14).toFloat())
-                layoutParams = LinearLayout.LayoutParams(dp(BRUSH_NORMAL_DP), dp(BRUSH_HEIGHT_DP)).apply {
-                    if (style == PenStyle.toolbarOrder.first()) marginStart = dp(10)
+                isClickable = true
+                foreground = Ripple.rounded(context, dp(12).toFloat())
+                setOnClickListener { listener.onTool(style, centerOnScreen(this)) }
+                layoutParams = LinearLayout.LayoutParams(dp(45), dp(BRUSH_DP)).apply {
+                    if (style == PenStyle.toolbarOrder.first()) marginStart = dp(20)
                 }
             }
             glyphs[style] = glyph
             row.addView(glyph)
         }
 
-        // 2x2 quick colours + rainbow, 34dp circles with 12dp gaps.
         val grid = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(dp(76), dp(76)).apply { marginStart = dp(10) }
+            layoutParams = LinearLayout.LayoutParams(dp(82), dp(82)).apply {
+                marginStart = dp(8)
+                bottomMargin = dp((CAPSULE_DP - 82) / 2)
+            }
         }
         for (r in 0..1) {
             val line = LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
-                layoutParams = LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f)
+                layoutParams = LinearLayout.LayoutParams(MATCH, 0, 1f)
             }
             for (c in 0..1) {
                 val index = r * 2 + c
-                val cell = LinearLayout.LayoutParams(dp(SWATCH_DP), dp(SWATCH_DP))
+                val cell = LinearLayout.LayoutParams(dp(41), dp(41))
                 if (index < BrushConfig.QUICK_COLORS.size) {
                     val color = BrushConfig.QUICK_COLORS[index]
-                    val swatch = SwatchView(context, color).apply {
+                    val swatch = Swatch(color).apply {
                         setOnClickListener { listener.onColor(color) }
-                        layoutParams = cell
                     }
-                    quickSwatches.add(swatch)
-                    line.addView(swatch, cell.apply { if (c > 0) marginStart = dp(SWATCH_GAP_DP) })
+                    swatches.add(swatch)
+                    line.addView(swatch, cell)
                 } else {
-                    line.addView(RainbowSwatch(context).apply {
+                    line.addView(RainbowSwatch().apply {
                         onTap = { listener.onOpenColorPanel(centerOnScreen(this)) }
-                    }, cell.apply { if (c > 0) marginStart = dp(SWATCH_GAP_DP) })
+                    }, cell)
                 }
             }
-            grid.addView(line, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f).apply {
-                if (r > 0) topMargin = dp(SWATCH_GAP_DP)
-            })
+            grid.addView(line, LinearLayout.LayoutParams(MATCH, 0, 1f))
         }
         row.addView(grid)
 
-        val moreButton = circle(R.drawable.ic_more) {
-            listener.onOpenMoreMenu(centerOnScreen(moreAnchor))
-        }
-        moreButton.layoutParams = LinearLayout.LayoutParams(dp(BUTTON_DP), dp(BUTTON_DP)).apply { marginStart = dp(10) }
-        moreAnchor = moreButton
-        row.addView(moreButton)
-
-        row.addView(circle(R.drawable.ic_close) { listener.onQuit() }.apply {
-            layoutParams = LinearLayout.LayoutParams(dp(BUTTON_DP), dp(BUTTON_DP)).apply { marginStart = dp(16) }
-        })
-
-        scroll = HorizontalScrollView(context).apply {
-            isHorizontalScrollBarEnabled = false
-            overScrollMode = OVER_SCROLL_NEVER
-            isFillViewport = false
-            addView(row, LayoutParams(WRAP_CONTENT, dp(BRUSH_HEIGHT_DP)))
-            layoutParams = LayoutParams(MATCH_PARENT, dp(BRUSH_HEIGHT_DP)).apply {
-                gravity = Gravity.BOTTOM
-                bottomMargin = dp(0)
+        more = circle(R.drawable.picker_more) { listener.onOpenMore(centerOnScreen(this)) }.apply {
+            layoutParams = LinearLayout.LayoutParams(dp(42), dp(42)).apply {
+                marginStart = dp(0)
+                bottomMargin = dp((CAPSULE_DP - 42) / 2)
             }
         }
-        addView(scroll)
+        row.addView(more)
+
+        addView(row, LayoutParams(MATCH, MATCH))
     }
 
-    fun update(brush: BrushConfig, mode: OverlayMode, canUndo: Boolean, canRedo: Boolean) {
+    // ── drawing ────────────────────────────────────────────────────────────
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        invalidate()
+    }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        drawCapsule(canvas)
+        super.dispatchDraw(canvas)
+        drawHandle(canvas)
+    }
+
+    private fun drawCapsule(canvas: Canvas) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        paint.color = ContextCompat.getColor(context, R.color.penpicker_background_color)
+        canvas.drawRoundRect(
+            RectF(0f, 0f, width.toFloat(), height.toFloat()),
+            height / 2f, height / 2f, paint,
+        )
+    }
+
+    private fun drawHandle(canvas: Canvas) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        paint.color = ContextCompat.getColor(context, R.color.ga_handle)
+        val w = 30f * density
+        val h = 3.6f * density
+        val left = (width - w) / 2f
+        val top = 4f * density
+        canvas.drawRoundRect(RectF(left, top, left + w, top + h), h / 2f, h / 2f, paint)
+    }
+
+    // ── state ──────────────────────────────────────────────────────────────
+
+    fun update(brush: BrushConfig, canUndo: Boolean, canRedo: Boolean) {
         glyphs.forEach { (style, glyph) ->
             glyph.color = brush.color
-            val selected = style == brush.style
-            glyph.checked = selected
-            // Mi Canvas widens the active brush slot (68dp vs 48dp) and keeps
-            // every brush at the same 124dp height, so the selected one rises
-            // above the capsule naturally.
-            val targetWidth = dp(if (selected) BRUSH_LARGE_DP else BRUSH_NORMAL_DP)
-            if (glyph.layoutParams.width != targetWidth) {
-                glyph.layoutParams = (glyph.layoutParams as LinearLayout.LayoutParams).apply {
-                    width = targetWidth
-                }
-                glyph.requestLayout()
+            glyph.checked = style == brush.style
+            val lp = glyph.layoutParams as LinearLayout.LayoutParams
+            val w = dp(if (style == brush.style) 64 else 45)
+            val h = dp(if (style == brush.style) 94 else BRUSH_DP)
+            if (lp.width != w || lp.height != h) {
+                lp.width = w
+                lp.height = h
+                glyph.layoutParams = lp
             }
-            glyph.animate()
-                .scaleX(if (selected) 1.12f else 1f)
-                .scaleY(if (selected) 1.12f else 1f)
-                .translationY(if (selected) -dp(6).toFloat() else 0f)
-                .setDuration(150)
-                .start()
         }
-        quickSwatches.forEach { it.checked = it.color == brush.color }
-        undoButton.enabledVisual = canUndo
-        redoButton.enabledVisual = canRedo
+        val night = isNight()
+        swatches.forEach { it.checked = it.color == brush.color }
+        undo.enabledVisual = canUndo
+        redo.enabledVisual = canRedo
     }
 
-    /** Natural width so the window hugs the row (no trailing gap). */
     fun contentWidthPx(): Int {
         row.measure(
             MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
-            MeasureSpec.makeMeasureSpec(dp(BRUSH_HEIGHT_DP), MeasureSpec.EXACTLY),
+            MeasureSpec.makeMeasureSpec(dp(CAPSULE_DP), MeasureSpec.EXACTLY),
         )
         return row.measuredWidth
     }
 
+    private fun isNight(): Boolean {
+        val bg = ContextCompat.getColor(context, R.color.penpicker_background_color)
+        val lum = 0.299f * Color.red(bg) + 0.587f * Color.green(bg) + 0.114f * Color.blue(bg)
+        return lum < 128f
+    }
+
     private fun centerOnScreen(view: View): Int {
-        val location = IntArray(2)
-        view.getLocationOnScreen(location)
-        return location[0] + view.width / 2
+        val loc = IntArray(2)
+        view.getLocationOnScreen(loc)
+        return loc[0] + view.width / 2
     }
 
     private fun circle(icon: Int, tap: () -> Unit): IconButton =
@@ -217,8 +221,9 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
             iconRes = icon
             onTap = tap
             contentDescription = resources.getResourceEntryName(icon)
-            layoutParams = LinearLayout.LayoutParams(dp(38), dp(38))
         }
+
+    // ── dragging ───────────────────────────────────────────────────────────
 
     override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
         when (ev.actionMasked) {
@@ -226,12 +231,11 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
                 downX = ev.rawX
                 downY = ev.rawY
                 dragging = false
-                dragEligible = !hitsInteractive(this, ev.x, ev.y)
                 return false
             }
             MotionEvent.ACTION_MOVE -> {
                 if (dragging) return true
-                if (dragEligible && (abs(ev.rawX - downX) > dp(8) || abs(ev.rawY - downY) > dp(8))) {
+                if (abs(ev.rawX - downX) > 8 * density || abs(ev.rawY - downY) > 8 * density) {
                     dragging = true
                     dragListener?.onDragStart()
                     return true
@@ -244,6 +248,7 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
             MotionEvent.ACTION_MOVE -> {
+                if (!dragging) return false
                 dragListener?.onDrag(event.rawX - downX, event.rawY - downY)
                 downX = event.rawX
                 downY = event.rawY
@@ -258,23 +263,38 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         return dragging
     }
 
-    private fun hitsInteractive(group: android.view.ViewGroup, px: Float, py: Float): Boolean {
-        for (i in group.childCount - 1 downTo 0) {
-            val child = group.getChildAt(i)
-            if (child.visibility != View.VISIBLE) continue
-            val x = px + group.scrollX - child.left
-            val y = py + group.scrollY - child.top
-            if (x < 0f || y < 0f || x > child.width || y > child.height) continue
-            if (child is android.view.ViewGroup && hitsInteractive(child, x, y)) return true
-            if (child.isClickable || child is HorizontalScrollView) return true
-        }
-        return false
-    }
-
     private fun dp(value: Int): Int = (value * density).toInt()
 
-    /** White disc + rainbow ring + white centre, matching the original. */
-    private class RainbowSwatch(context: Context) : View(context) {
+    // ── swatches ───────────────────────────────────────────────────────────
+
+    private inner class Swatch(val color: Int) : View(context) {
+        var checked = false
+            set(value) { field = value; invalidate() }
+        private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+        init {
+            isClickable = true
+            foreground = Ripple.circle(context)
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            val cx = width / 2f
+            val cy = height / 2f
+            val r = min(width, height) * 0.46f
+            paint.style = Paint.Style.FILL
+            paint.color = color
+            canvas.drawCircle(cx, cy, r, paint)
+            if (checked) {
+                paint.style = Paint.Style.STROKE
+                paint.strokeWidth = 2f * density
+                paint.color = if (isNight()) Color.WHITE else Color.BLACK
+                canvas.drawCircle(cx, cy, r + 3f * density, paint)
+            }
+        }
+    }
+
+    /** Rainbow disc: white core, hue ring, thin white rim — as in the reference. */
+    private inner class RainbowSwatch : View(context) {
         var onTap: (() -> Unit)? = null
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val colors = intArrayOf(
@@ -287,24 +307,34 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
 
         init {
             isClickable = true
+            foreground = Ripple.circle(context)
             setOnClickListener { onTap?.invoke() }
         }
 
         override fun onDraw(canvas: Canvas) {
             val cx = width / 2f
             val cy = height / 2f
-            val r = min(width, height) * 0.5f
+            val r = min(width, height) * 0.46f
             paint.style = Paint.Style.FILL
             paint.shader = null
             paint.color = Color.WHITE
             canvas.drawCircle(cx, cy, r, paint)
-
             paint.style = Paint.Style.STROKE
-            paint.strokeWidth = r * 0.44f
+            paint.strokeWidth = r * 0.60f
             paint.shader = SweepGradient(cx, cy, colors, null)
-            canvas.drawCircle(cx, cy, r * 0.74f, paint)
+            canvas.drawCircle(cx, cy, r * 0.68f, paint)
             paint.shader = null
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = 1.2f * density
+            paint.color = Color.argb(60, 0, 0, 0)
+            canvas.drawCircle(cx, cy, r, paint)
             paint.style = Paint.Style.FILL
         }
+    }
+
+    private companion object {
+        const val CAPSULE_DP = 102
+        const val BRUSH_DP = 77
+        const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
     }
 }

@@ -22,6 +22,7 @@ object GestureKeys {
     const val SLIDE_UP = 196
     const val SLIDE_DOWN = 197
     const val SCANCODE_SQUEEZE_RAW = 189 // Linux KEY_F19
+    const val SCANCODE_DOUBLE_TAP_RAW = 78 // Linux KEY_KPPLUS
 }
 
 /** Binder protocol used by the LSPosed module to hand stylus MotionEvents over. */
@@ -31,16 +32,6 @@ object InputIpc {
     const val TX_SET_ACTIVE = 2
     const val SERVICE_PACKAGE = "com.globalannotate.app"
     const val SERVICE_CLASS = "com.globalannotate.app.AnnotationInputService"
-}
-
-enum class OverlayMode {
-    /** No root: full-screen overlay intercepts everything, only stylus draws. */
-    DRAW,
-    /** No root: overlay is fully touch-transparent, underlying app is usable. */
-    PASSTHROUGH,
-    /** Root + LSPosed: overlay is touch-transparent; system_server reroutes
-     *  stylus events into the app's binder sink and lets finger events pass. */
-    ROOT_SPLIT,
 }
 
 enum class Gesture { SQUEEZE, DOUBLE_TAP, SLIDE_UP, SLIDE_DOWN }
@@ -59,4 +50,5 @@ enum class GestureAction {
     TOGGLE_TOOLBAR,
     OPEN_COLOR,
     CYCLE_COLOR,
+    OPEN_PALETTE,
 }

@@ -6,18 +6,21 @@ import android.graphics.Color
 import android.graphics.RectF
 import android.util.AttributeSet
 
-/** Hue rail: full-spectrum gradient, value 0..1 maps to 0..360°. */
+/** Hue rail, 0…360°, drawn like Mi Canvas `ColorPickerHueView`. */
 class ColorPickerHueView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
 ) : PickerBar(context, attrs) {
 
+    init { max = 360 }
+
     override fun drawTrack(canvas: Canvas, track: RectF, radius: Float) {
         trackPaint.shader = horizontalGradient(
-            Color.RED, Color.MAGENTA, Color.BLUE, Color.CYAN, Color.GREEN, Color.YELLOW, Color.RED,
+            Color.RED, Color.YELLOW, Color.GREEN, Color.CYAN, Color.BLUE, Color.MAGENTA, Color.RED,
         )
         canvas.drawRoundRect(track, radius, radius, trackPaint)
+        trackPaint.shader = null
     }
 
-    val hue: Float get() = progress * 360f
+    override fun ringColor(): Int = Color.WHITE
 }

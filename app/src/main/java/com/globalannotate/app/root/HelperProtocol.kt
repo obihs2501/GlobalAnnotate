@@ -28,6 +28,9 @@ object HelperProtocol {
 
     /** `OPACITY 0|1` — lift / restore the obscuring-opacity limit for pass-through touches. */
     const val CMD_OPACITY = "OPACITY"
+    /** `INJECT x1,y1,x2,y2,ms` — a finger swipe into the app underneath (long capture). */
+    const val CMD_INJECT = "INJECT"
+
     const val CMD_QUIT = "QUIT"
 
     const val MAIN_CLASS = "com.globalannotate.app.root.HelperMain"

@@ -7,404 +7,140 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PointF
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffXfermode
 import android.os.Handler
 import android.os.Looper
-import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
-import com.globalannotate.app.Gesture
-import com.globalannotate.app.OverlayMode
 import com.globalannotate.app.model.BrushConfig
 import com.globalannotate.app.model.EraserMode
 import com.globalannotate.app.model.PenStyle
-import com.globalannotate.app.stylus.FocusPenGestureDetector
 import kotlin.math.abs
 import kotlin.math.hypot
-import kotlin.math.sin
+import kotlin.math.max
 
 /**
- * Ink surface. Every [PenStyle] has its own renderer so the strokes actually
- * look different, not just wider:
+ * Ink surface.
  *
- *  - 铅笔      three jittered hairlines + graphite dust
- *  - 圆珠笔    constant hairline with a thin sheen
- *  - 钢笔      variable-width ribbon that tapers at both ends
- *  - 马克笔    flat square-cap ribbon, translucent, darkens on overlap
- *  - 荧光笔    same ribbon, very low alpha, wide
- *  - 激光笔    glow + 1.4s fade
- *  - 橡皮      CLEAR with size only (no alpha, no pressure)
+ * Strokes are stored in **content coordinates** (screen y + [scrollOffset]), so
+ * annotating a long article the way Huawei's 滚动批注 does works: the finger
+ * scrolls the app underneath, the ink stays glued to the page, and a new stroke
+ * can continue from where the last one was left.
  *
- * While the pen is down the newest segment is painted incrementally for speed;
- * on pen-up the whole stroke is re-rendered so taper and strands are exact.
+ * The rendered ink lives in one screen-sized bitmap; while a finger scroll is in
+ * flight the bitmap is shifted by the same delta, and the exact re-render
+ * follows as soon as scrolling settles.
  */
 class AnnotationCanvasView(context: Context) : View(context) {
 
-    private val strokes = mutableListOf<InkStroke>()
+    private val engine = InkEngine().also { it.setDensity(resources.displayMetrics.density) }
+    private val density = resources.displayMetrics.density
+
+    val strokes = mutableListOf<InkStroke>()
     private val redoStack = mutableListOf<InkStroke>()
     private var active: InkStroke? = null
     private var ink: Bitmap? = null
+    private var spare: Bitmap? = null
     private var inkCanvas: Canvas? = null
-    private var hoverPoint: PointF? = null
-    private val density = resources.displayMetrics.density
-    private val fadeHandler = Handler(Looper.getMainLooper())
 
     var brush: BrushConfig = BrushConfig()
-    var mode: OverlayMode = OverlayMode.DRAW
     var allowFinger: Boolean = false
-    var onGesture: ((Gesture) -> Unit)? = null
+    var scrollOffset: Float = 0f
+        private set
+    var hoverPoint: PointF? = null
     var onStateChanged: (() -> Unit)? = null
     var onPenDown: (() -> Unit)? = null
-    /** Tap anywhere on the canvas (outside a popup) closes the popups. */
     var onOutsideTouch: (() -> Unit)? = null
+    private var hoverPressure = 0f
+    private var hoverTilt = 0f
 
-    private val detector = FocusPenGestureDetector { gesture -> onGesture?.invoke(gesture) }
+    private val handler = Handler(Looper.getMainLooper())
+    private val rebuildTask = Runnable { rebuildInk() }
+    private var rebuildPending = false
 
-    private fun sizeFor(): Float =
-        if (brush.style.isEraser) brush.eraserSize else brush.size
+    private var downTime = 0L
+    private var lastMoveTime = 0L
+    private var anchorX = 0f
+    private var anchorY = 0f
 
-    private fun widthFor(pressure: Float): Float {
-        val px = brush.style.toPixels(sizeFor(), density)
-        if (brush.style.isEraser) return px
-        return when (brush.style) {
-            PenStyle.PENCIL -> {
-                val p = pressure.coerceIn(0.15f, 1f)
-                px * (0.55f + 0.45f * p * (0.5f + brush.sensitivity))
-            }
-            PenStyle.INK_PEN -> {
-                val p = pressure.coerceIn(0.05f, 1f)
-                px * (0.20f + 1.30f * p * (0.4f + brush.sensitivity))
-            }
-            PenStyle.BALLPOINT -> px * 0.92f
-            else -> px
-        }
-    }
+    // ── sizing ─────────────────────────────────────────────────────────────
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        recreateInk()
-    }
-
-    private fun recreateInk() {
         ink?.recycle()
+        spare?.recycle()
         ink = null
+        spare = null
         inkCanvas = null
+        ensureInk()
+        rebuildInk()
+    }
+
+    private fun ensureInk() {
         if (width <= 0 || height <= 0) return
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-        ink = bitmap
-        inkCanvas = Canvas(bitmap)
-        rebuildInk()
+        if (ink != null && ink!!.width == width && ink!!.height == height) return
+        ink = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        inkCanvas = Canvas(ink!!)
     }
 
-    private fun rebuildInk() {
-        val canvas = inkCanvas ?: return
-        canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-        strokes.forEach { renderStroke(canvas, it) }
-        invalidate()
-    }
+    // ── brush maths ────────────────────────────────────────────────────────
 
-    // ── renderers ───────────────────────────────────────────────────────────
+    private fun baseWidth(): Float =
+        if (brush.style.isEraser) brush.style.toPixels(brush.eraserSize, density)
+        else brush.style.toPixels(brush.size, density)
 
-    private fun fillPaintFor(stroke: InkStroke): Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        if (stroke.style.isEraser) {
-            xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
-            color = Color.BLACK
-        } else {
-            color = stroke.color
-        }
-    }
-
-    private fun renderStroke(canvas: Canvas, stroke: InkStroke) {
-        val pts = stroke.points
-        if (pts.isEmpty()) return
-        when (stroke.style) {
-            PenStyle.PENCIL -> renderPencil(canvas, stroke)
-            PenStyle.BALLPOINT -> renderBallpoint(canvas, stroke)
-            PenStyle.LASER -> renderLaser(canvas, stroke)
-            PenStyle.INK_PEN -> renderRibbon(canvas, stroke, taper = true)
-            PenStyle.WATER_COLOR -> renderWaterColor(canvas, stroke)
-            PenStyle.MARKER, PenStyle.HIGHLIGHTER, PenStyle.ERASER ->
-                renderRibbon(canvas, stroke, taper = false)
-        }
-    }
-
-    /** Watercolour: three offset low-alpha passes give a soft wet edge. */
-    private fun renderWaterColor(canvas: Canvas, stroke: InkStroke) {
-        val pts = stroke.points
-        if (pts.isEmpty()) return
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-            color = stroke.color
-        }
-        // Mi Canvas watercolour: one crisp core pass plus two wider, thinner
-        // "bleed" passes so the edge stays soft and overlaps deepen.
-        val baseAlpha = Color.alpha(stroke.color)
-        for (pass in 0 until 3) {
-            paint.alpha = (baseAlpha * (0.55f - pass * 0.15f)).toInt().coerceIn(6, 255)
-            for (i in 1 until pts.size) {
-                val width = (pts[i - 1].width + pts[i].width) / 2f
-                paint.strokeWidth = width * (1f + pass * 0.45f)
-                canvas.drawLine(pts[i - 1].x, pts[i - 1].y, pts[i].x, pts[i].y, paint)
+    private fun widthFor(pressure: Float, tilt: Float): Float {
+        val base = baseWidth()
+        if (brush.style.isEraser) return base
+        val s = brush.sensitivity.coerceIn(0f, 1f)
+        return when (brush.style) {
+            PenStyle.BALLPOINT -> base
+            PenStyle.PENCIL -> {
+                val tiltBoost = 1f + tilt.coerceIn(0f, 1f) * 1.2f * s
+                base * tiltBoost * (0.85f + 0.3f * pressure)
             }
-        }
-    }
-
-    /** Filled quad strip: real variable width, optional tapered ends. */
-    private fun renderRibbon(canvas: Canvas, stroke: InkStroke, taper: Boolean) {
-        val pts = stroke.points
-        val paint = fillPaintFor(stroke)
-        if (pts.size == 1) {
-            canvas.drawCircle(pts[0].x, pts[0].y, pts[0].width / 2f, paint)
-            return
-        }
-        val left = ArrayList<FloatArray>(pts.size)
-        val right = ArrayList<FloatArray>(pts.size)
-        for (i in pts.indices) {
-            val prev = pts[(i - 1).coerceAtLeast(0)]
-            val next = pts[(i + 1).coerceAtMost(pts.size - 1)]
-            var dx = next.x - prev.x
-            var dy = next.y - prev.y
-            val len = hypot(dx, dy).coerceAtLeast(0.0001f)
-            dx /= len
-            dy /= len
-            var half = pts[i].width / 2f
-            if (taper) {
-                val t = i / (pts.size - 1f)
-                val pinch = minOf(t, 1f - t) * 2f
-                half *= 0.30f + 0.70f * pinch
+            PenStyle.INK_PEN -> {
+                val tip = 0.75f + brush.tipSize * 0.12f
+                base * tip * (0.18f + 1.25f * pressure.coerceIn(0.02f, 1f) * (0.45f + 1.1f * s))
             }
-            left.add(floatArrayOf(pts[i].x - dy * half, pts[i].y + dx * half))
-            right.add(floatArrayOf(pts[i].x + dy * half, pts[i].y - dx * half))
-        }
-        val path = Path()
-        path.moveTo(left[0][0], left[0][1])
-        for (i in 1 until left.size) path.lineTo(left[i][0], left[i][1])
-        for (i in right.indices.reversed()) path.lineTo(right[i][0], right[i][1])
-        path.close()
-        canvas.drawPath(path, paint)
-    }
-
-    private fun renderBallpoint(canvas: Canvas, stroke: InkStroke) {
-        val pts = stroke.points
-        val base = pts.first().width
-        val line = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-            color = stroke.color
-            strokeWidth = base
-        }
-        val path = pathOf(pts)
-        canvas.drawPath(path, line)
-        canvas.drawPath(path, Paint(line).apply {
-            strokeWidth = (base * 0.28f).coerceAtLeast(0.6f)
-            color = Color.argb(90, 255, 255, 255)
-        })
-    }
-
-    private fun renderLaser(canvas: Canvas, stroke: InkStroke) {
-        val pts = stroke.points
-        val base = pts.first().width
-        val path = pathOf(pts)
-        val core = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-            color = stroke.color
-            strokeWidth = base
-        }
-        canvas.drawPath(path, Paint(core).apply {
-            alpha = 60
-            strokeWidth = base * 2.8f
-        })
-        canvas.drawPath(path, core)
-    }
-
-    /** Dry graphite: three wobbling hairlines plus dust. */
-    private fun renderPencil(canvas: Canvas, stroke: InkStroke) {
-        val pts = stroke.points
-        val base = pts.first().width
-        val color = stroke.color
-        for (s in 0 until 3) {
-            val offset = (s - 1) * base * 0.30f
-            val hair = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE
-                strokeCap = Paint.Cap.ROUND
-                strokeJoin = Paint.Join.ROUND
-                strokeWidth = (base * 0.34f).coerceAtLeast(0.7f)
-                this.color = Color.argb(
-                    (Color.alpha(color) * 0.55f).toInt(),
-                    Color.red(color), Color.green(color), Color.blue(color),
-                )
-            }
-            val path = Path()
-            for (i in pts.indices) {
-                val p = pts[i]
-                val prev = pts[(i - 1).coerceAtLeast(0)]
-                val next = pts[(i + 1).coerceAtMost(pts.size - 1)]
-                var dx = next.x - prev.x
-                var dy = next.y - prev.y
-                val len = hypot(dx, dy).coerceAtLeast(0.0001f)
-                dx /= len
-                dy /= len
-                val wobble = (noise(p.x, p.y, s) - 0.5f) * base * 0.55f
-                val x = p.x + (-dy) * (offset + wobble)
-                val y = p.y + dx * (offset + wobble)
-                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-            }
-            canvas.drawPath(path, hair)
-        }
-        val dust = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = Color.argb(
-                (Color.alpha(color) * 0.35f).toInt(),
-                Color.red(color), Color.green(color), Color.blue(color),
-            )
-        }
-        for (i in 1 until pts.size) {
-            val a = pts[i - 1]
-            val b = pts[i]
-            val n = (hypot(b.x - a.x, b.y - a.y) / 2.5f).toInt().coerceIn(0, 8)
-            for (k in 0 until n) {
-                val t = noise(a.x, b.y, k + i)
-                val jx = (noise(b.x, a.y, k + i + 7) - 0.5f) * base * 1.4f
-                val jy = (noise(a.y, b.x, k + i + 13) - 0.5f) * base * 1.4f
-                canvas.drawCircle(
-                    a.x + (b.x - a.x) * t + jx,
-                    a.y + (b.y - a.y) * t + jy,
-                    0.55f * density, dust,
-                )
-            }
+            PenStyle.MARKER, PenStyle.HIGHLIGHTER -> base * (0.92f + 0.08f * pressure)
+            PenStyle.WATER_COLOR -> base * (0.7f + 0.5f * pressure)
+            PenStyle.ERASER -> base
         }
     }
 
-    private fun pathOf(pts: List<InkPoint>): Path = Path().apply {
-        moveTo(pts[0].x, pts[0].y)
-        for (i in 1 until pts.size) lineTo(pts[i].x, pts[i].y)
+    private fun tiltOf(event: MotionEvent): Float {
+        // AXIS_TILT is 0..pi/2; normalise, then weight by the pen's tilt angle.
+        val tilt = runCatching { event.getAxisValue(MotionEvent.AXIS_TILT) }.getOrDefault(0f)
+        return (tilt / (Math.PI.toFloat() / 2f)).coerceIn(0f, 1f)
     }
 
-    /** Fast incremental paint while the pen is down. */
-    private fun drawTail(stroke: InkStroke) {
-        val canvas = inkCanvas ?: return
-        val pts = stroke.points
-        if (pts.size == 1) {
-            canvas.drawCircle(pts[0].x, pts[0].y, pts[0].width / 2f, fillPaintFor(stroke))
-            return
-        }
-        val a = pts[pts.size - 2]
-        val b = pts[pts.size - 1]
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeCap = if (stroke.style.squareCap) Paint.Cap.SQUARE else Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-            strokeWidth = ((a.width + b.width) * 0.5f).coerceAtLeast(0.6f)
-            if (stroke.style.isEraser) {
-                xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
-                color = Color.BLACK
-            } else {
-                color = stroke.color
-            }
-        }
-        if (stroke.style.glow) {
-            canvas.drawLine(a.x, a.y, b.x, b.y, Paint(paint).apply {
-                alpha = 60
-                strokeWidth = paint.strokeWidth * 2.4f
-            })
-        }
-        canvas.drawLine(a.x, a.y, b.x, b.y, paint)
-        if (stroke.style.inkHighlight) {
-            canvas.drawLine(a.x, a.y, b.x, b.y, Paint(paint).apply {
-                strokeWidth = paint.strokeWidth * 0.3f
-                color = Color.argb(90, 255, 255, 255)
-            })
-        }
-    }
-
-    private fun noise(x: Float, y: Float, i: Int): Float =
-        abs((sin(x * 12.9898f + y * 78.233f + i * 37.719f) * 43758.5453f) % 1f)
-
-    // ── stroke lifecycle ────────────────────────────────────────────────────
-
-    private fun eraseStrokeAt(x: Float, y: Float) {
-        val radius = widthFor(0.5f) * 1.6f
-        val index = strokes.indexOfLast { stroke ->
-            !stroke.style.isEraser && stroke.points.any { point ->
-                hypot(point.x - x, point.y - y) < radius + point.width
-            }
-        }
-        if (index >= 0) {
-            strokes.removeAt(index)
-            redoStack.clear()
-            rebuildInk()
-            onStateChanged?.invoke()
-        }
-    }
-
-    private fun begin(x: Float, y: Float, pressure: Float) {
-        if (brush.style.isEraser && brush.eraserMode == EraserMode.STROKE) {
-            eraseStrokeAt(x, y)
-            return
-        }
-        redoStack.clear()
-        val stroke = InkStroke(
-            color = if (brush.style.isEraser) Color.BLACK else brush.effectiveColor,
-            style = brush.style,
-            baseWidth = sizeFor(),
-        )
-        stroke.points.add(InkPoint(x, y, widthFor(pressure)))
-        strokes.add(stroke)
-        active = stroke
-        drawTail(stroke)
-        invalidate()
-        onStateChanged?.invoke()
-    }
-
-    private fun move(x: Float, y: Float, pressure: Float) {
-        val stroke = active ?: return
-        stroke.points.add(InkPoint(x, y, widthFor(pressure)))
-        drawTail(stroke)
-        invalidate()
-    }
-
-    private fun end() {
-        val finished = active ?: return
-        active = null
-        // Re-render so taper / strands / ribbon geometry are exact.
-        rebuildInk()
-        if (finished.style.fades) {
-            fadeHandler.postDelayed({
-                if (strokes.remove(finished)) {
-                    rebuildInk()
-                    onStateChanged?.invoke()
-                }
-            }, LASER_FADE_MS)
-        }
-        onStateChanged?.invoke()
-    }
+    // ── stroke lifecycle ───────────────────────────────────────────────────
 
     fun injectStylusEvent(event: MotionEvent): Boolean {
         if (event.pointerCount == 0) return false
-        val tool = event.getToolType(0)
-        if (tool != MotionEvent.TOOL_TYPE_STYLUS && tool != MotionEvent.TOOL_TYPE_ERASER) return false
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 onPenDown?.invoke()
-                begin(event.x, event.y, event.pressure)
+                begin(event.x, event.y + scrollOffset, event.pressure, tiltOf(event))
             }
             MotionEvent.ACTION_MOVE -> {
                 if (event.historySize > 0) {
                     for (i in 0 until event.historySize) {
-                        move(event.getHistoricalX(i), event.getHistoricalY(i), event.getHistoricalPressure(i))
+                        move(
+                            event.getHistoricalX(i),
+                            event.getHistoricalY(i) + scrollOffset,
+                            event.getHistoricalPressure(i),
+                            tiltOf(event),
+                        )
                     }
                 }
-                move(event.x, event.y, event.pressure)
+                move(event.x, event.y + scrollOffset, event.pressure, tiltOf(event))
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> end()
             MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
                 hoverPoint = PointF(event.x, event.y)
+                hoverPressure = event.pressure
+                hoverTilt = tiltOf(event)
                 invalidate()
             }
             MotionEvent.ACTION_HOVER_EXIT -> {
@@ -415,68 +151,206 @@ class AnnotationCanvasView(context: Context) : View(context) {
         return true
     }
 
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.actionMasked == MotionEvent.ACTION_DOWN) onOutsideTouch?.invoke()
-        if (mode != OverlayMode.DRAW) return false
-        val tool = if (event.pointerCount > 0) event.getToolType(0) else MotionEvent.TOOL_TYPE_UNKNOWN
-        if (!allowFinger && tool != MotionEvent.TOOL_TYPE_STYLUS && tool != MotionEvent.TOOL_TYPE_ERASER) {
-            return true
+    private fun begin(x: Float, y: Float, pressure: Float, tilt: Float) {
+        if (brush.style.isEraser && brush.eraserMode == EraserMode.STROKE) {
+            eraseStrokeAt(x, y)
+            return
         }
-        injectStylusEvent(event)
-        return true
+        redoStack.clear()
+        val stroke = InkStroke(
+            color = if (brush.style.isEraser) Color.BLACK else brush.effectiveColor,
+            style = brush.style,
+        )
+        stroke.points.add(InkPoint(x, y, widthFor(pressure, tilt), tilt))
+        strokes.add(stroke)
+        active = stroke
+        downTime = System.currentTimeMillis()
+        lastMoveTime = downTime
+        anchorX = x
+        anchorY = y
+        drawTail(stroke)
+        invalidate()
+        onStateChanged?.invoke()
     }
 
-    override fun onHoverEvent(event: MotionEvent): Boolean = injectStylusEvent(event)
-
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (detector.onKey(event.keyCode, event.action, event.repeatCount, event.scanCode)) return true
-        return super.dispatchKeyEvent(event)
+    private fun move(x: Float, y: Float, pressure: Float, tilt: Float) {
+        val stroke = active ?: return
+        val last = stroke.points.last()
+        // Drop samples that carry no new position: they only cost render time.
+        if (hypot(x - last.x, y - last.y) < max(0.7f, last.width * 0.06f)) return
+        stroke.points.add(InkPoint(x, y, widthFor(pressure, tilt), tilt))
+        val now = System.currentTimeMillis()
+        if (hypot(x - anchorX, y - anchorY) > 14 * density) {
+            anchorX = x
+            anchorY = y
+            lastMoveTime = now
+        }
+        drawTail(stroke)
+        invalidate()
     }
 
-    fun requestGestureFocus() {
-        isFocusable = true
-        isFocusableInTouchMode = true
-        requestFocus()
+    private fun end() {
+        val finished = active ?: return
+        active = null
+        val now = System.currentTimeMillis()
+        val held = now - lastMoveTime
+        if (held in 480..2200 && !finished.style.isEraser && finished.points.size > 8) {
+            val snapped = ShapeSnap.recognise(finished.points)
+            if (snapped != null) {
+                finished.points.clear()
+                finished.points.addAll(snapped)
+                finished.snapped = "shape"
+            }
+        }
+        rebuildInk()
+        onStateChanged?.invoke()
     }
 
-    fun clearGestureFocus() {
-        clearFocus()
-        isFocusable = false
+    private fun drawTail(stroke: InkStroke) {
+        val canvas = inkCanvas ?: return
+        val pts = stroke.points
+        if (pts.isEmpty()) return
+        if (pts.size == 1) {
+            engine.drawTail(canvas, stroke, scrollOffset)
+        } else {
+            // Repaint the last few segments so joins stay smooth.
+            val from = max(0, pts.size - 4)
+            val part = InkStroke(pts.subList(from, pts.size).toMutableList(), stroke.color, stroke.style)
+            engine.draw(canvas, part, scrollOffset)
+        }
     }
+
+    private fun rebuildInk() {
+        rebuildPending = false
+        ensureInk()
+        val canvas = inkCanvas ?: return
+        canvas.drawColor(Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+        val lo = scrollOffset - 64f
+        val hi = scrollOffset + height + 64f
+        for (stroke in strokes) {
+            val b = stroke.bounds()
+            if (b[3] < lo || b[1] > hi) continue
+            engine.draw(canvas, stroke, scrollOffset)
+        }
+        invalidate()
+    }
+
+    private fun scheduleRebuild() {
+        if (rebuildPending) return
+        rebuildPending = true
+        handler.postDelayed(rebuildTask, 90)
+    }
+
+    private fun eraseStrokeAt(x: Float, y: Float) {
+        val radius = widthFor(0.5f, 0f) * 0.9f
+        val cy = y + scrollOffset
+        val index = strokes.indexOfLast { stroke ->
+            !stroke.isEraser && stroke.points.any { p -> hypot(p.x - x, p.y - cy) < radius + p.width * 0.5f }
+        }
+        if (index >= 0) {
+            strokes.removeAt(index)
+            redoStack.clear()
+            rebuildInk()
+            onStateChanged?.invoke()
+        }
+    }
+
+    // ── scrolling ──────────────────────────────────────────────────────────
+
+    /**
+     * Content follows the finger. [dy] is the finger's screen delta; the ink and
+     * every stored stroke slide by the same amount.
+     */
+    fun scrollBy(dy: Float) {
+        if (dy == 0f) return
+        val next = (scrollOffset + dy).coerceAtLeast(0f)
+        val applied = next - scrollOffset
+        if (applied == 0f) return
+        scrollOffset = next
+        val current = ink
+        if (current != null) {
+            val shifted = spare ?: Bitmap.createBitmap(current.width, current.height, Bitmap.Config.ARGB_8888)
+            spare = ink
+            val c = Canvas(shifted)
+            c.drawColor(Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+            c.drawBitmap(current, 0f, applied, null)
+            ink = shifted
+            inkCanvas = Canvas(shifted)
+        }
+        invalidate()
+        scheduleRebuild()
+    }
+
+    /** After a scroll settles, any stroke dragged off the top is discarded. */
+    fun pruneOffscreen() {
+        val keep = strokes.filter { it.bounds()[3] > scrollOffset - 200f }
+        if (keep.size != strokes.size) {
+            strokes.clear()
+            strokes.addAll(keep)
+            onStateChanged?.invoke()
+        }
+    }
+
+    // ── frame ──────────────────────────────────────────────────────────────
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         ink?.let { canvas.drawBitmap(it, 0f, 0f, null) }
-        hoverPoint?.let { point ->
-            val preview = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE
-                color = if (brush.style.isEraser) Color.WHITE else brush.color
-                alpha = 140
-                strokeWidth = 2f
+        hoverPoint?.let { p -> drawHover(canvas, p.x, p.y) }
+    }
+
+    private fun drawHover(canvas: Canvas, x: Float, y: Float) {
+        val w = widthFor(hoverPressure.coerceAtLeast(0.15f), hoverTilt)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeWidth = 1.5f * density
+            color = if (brush.style.isEraser) Color.WHITE else brush.color
+            alpha = 170
+        }
+        when (brush.style) {
+            PenStyle.MARKER, PenStyle.HIGHLIGHTER -> {
+                val half = w / 2f
+                canvas.save()
+                canvas.rotate(hoverTilt * 45f, x, y)
+                canvas.drawRoundRect(x - half, y - half, x + half, y + half, 3f, 3f, paint)
+                canvas.restore()
             }
-            canvas.drawCircle(point.x, point.y, widthFor(0.5f) * 0.5f, preview)
+            PenStyle.PENCIL -> {
+                paint.style = Paint.Style.FILL
+                paint.alpha = 110
+                canvas.drawCircle(x, y, max(w * 0.5f, 2f), paint)
+            }
+            else -> canvas.drawCircle(x, y, max(w * 0.5f, 2f), paint)
+        }
+        if (brush.style.isEraser) {
+            paint.style = Paint.Style.STROKE
+            paint.alpha = 90
+            canvas.drawCircle(x, y, 2.5f * density, paint)
         }
     }
 
-    fun undo() {
-        if (strokes.isEmpty()) return
+    // ── history ────────────────────────────────────────────────────────────
+
+    fun undo(): Boolean {
+        if (strokes.isEmpty()) return false
         redoStack.add(strokes.removeAt(strokes.size - 1))
         rebuildInk()
         onStateChanged?.invoke()
+        return true
     }
 
-    fun redo() {
-        if (redoStack.isEmpty()) return
+    fun redo(): Boolean {
+        if (redoStack.isEmpty()) return false
         strokes.add(redoStack.removeAt(redoStack.size - 1))
         rebuildInk()
         onStateChanged?.invoke()
+        return true
     }
 
     fun clear() {
         strokes.clear()
         redoStack.clear()
         active = null
-        fadeHandler.removeCallbacksAndMessages(null)
         rebuildInk()
         onStateChanged?.invoke()
     }
@@ -484,6 +358,7 @@ class AnnotationCanvasView(context: Context) : View(context) {
     fun canUndo(): Boolean = strokes.isNotEmpty()
     fun canRedo(): Boolean = redoStack.isNotEmpty()
 
+    /** Composite the ink (already offset-aware) over [background]. */
     fun render(background: Bitmap? = null, paperColor: Int? = null): Bitmap {
         val w = width.coerceAtLeast(1)
         val h = height.coerceAtLeast(1)
@@ -495,7 +370,10 @@ class AnnotationCanvasView(context: Context) : View(context) {
         return result
     }
 
-    private companion object {
-        const val LASER_FADE_MS = 1400L
-    }
+    /** Ink only, transparent, for stitching into a long capture. */
+    fun renderInk(): Bitmap =
+        ink?.copy(Bitmap.Config.ARGB_8888, false)
+            ?: Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+
+    fun strokeCount(): Int = strokes.size
 }

@@ -1,17 +1,23 @@
 package com.globalannotate.app.widget
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.util.AttributeSet
 import android.view.View
+import com.globalannotate.app.canvas.InkEngine
+import com.globalannotate.app.canvas.InkPoint
+import com.globalannotate.app.canvas.InkStroke
 import com.globalannotate.app.model.BrushConfig
+import kotlin.math.sin
 
 /**
- * The 110dp sample stroke at the top of the pen popup. Mi Canvas ships a PNG
- * per pen; we draw the same shape live so it follows colour and size.
+ * The 110dp sample at the top of a brush popup. Mi Canvas ships a PNG of the
+ * brush's signature stroke; we render the very same engine that paints the
+ * canvas, so what you see is what the pen will do.
  */
 class StrokePreview @JvmOverloads constructor(
     context: Context,
@@ -19,72 +25,55 @@ class StrokePreview @JvmOverloads constructor(
 ) : View(context, attrs) {
 
     var brush: BrushConfig = BrushConfig()
-        set(value) { field = value; invalidate() }
+        set(value) { field = value; sample = null; invalidate() }
 
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
-    private val path = Path()
-    private val grain = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val engine = InkEngine().also { it.setDensity(resources.displayMetrics.density) }
+    private var sample: InkStroke? = null
+    private val density = resources.displayMetrics.density
+
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        sample = null
+    }
+
+    private fun build(): InkStroke {
+        val b = brush
+        val stroke = InkStroke(
+            color = if (b.style.isEraser) Color.parseColor("#D0D0D0") else b.effectiveColor,
+            style = b.style,
+        )
+        val padX = width * 0.10f
+        val padY = height * 0.30f
+        val span = width - padX * 2
+        val amp = (height * 0.5f - padY).coerceAtLeast(6f)
+        val n = 72
+        val base = if (b.style.isEraser) {
+            b.style.toPixels(b.eraserSize, density)
+        } else {
+            b.style.toPixels(b.size, density)
+        }
+        for (i in 0..n) {
+            val t = i / n.toFloat()
+            val pressure = (0.15f + 0.85f * sin(Math.PI * t).toFloat()).coerceIn(0.05f, 1f)
+            val x = padX + span * t
+            val y = height / 2f + amp * sin((t * 2.2f) * Math.PI.toFloat() - 0.9f)
+            val w = when (b.style) {
+                com.globalannotate.app.model.PenStyle.BALLPOINT -> base
+                com.globalannotate.app.model.PenStyle.INK_PEN ->
+                    base * (0.18f + 1.25f * pressure * (0.45f + 1.1f * b.sensitivity))
+                com.globalannotate.app.model.PenStyle.MARKER,
+                com.globalannotate.app.model.PenStyle.HIGHLIGHTER -> base
+                com.globalannotate.app.model.PenStyle.WATER_COLOR -> base * (0.7f + 0.5f * pressure)
+                else -> base * (0.85f + 0.3f * pressure)
+            }
+            stroke.points.add(InkPoint(x, y, w.coerceAtLeast(1f), 0.35f))
+        }
+        return stroke
+    }
 
     override fun onDraw(canvas: Canvas) {
-        val w = width.toFloat()
-        val h = height.toFloat()
-        if (w <= 0f || h <= 0f) return
-        // Mi Canvas clips the sample to the popup's 36dp corners.
-        val radius = 36f * resources.displayMetrics.density
-        val path = Path().apply {
-            addRoundRect(
-                android.graphics.RectF(0f, 0f, w, h),
-                floatArrayOf(radius, radius, radius, radius, 0f, 0f, 0f, 0f),
-                Path.Direction.CW,
-            )
-        }
-        val saved = canvas.save()
-        canvas.clipPath(path)
-        val style = brush.style
-        val c = brush.effectiveColor
-        paint.color = c
-        paint.strokeCap = if (style.squareCap) Paint.Cap.SQUARE else Paint.Cap.ROUND
-        paint.strokeWidth = style.toPixels(brush.size, resources.displayMetrics.density)
-            .coerceIn(1.5f, h * 0.35f)
-        path.reset()
-        path.moveTo(w * 0.10f, h * 0.62f)
-        path.cubicTo(w * 0.30f, h * 0.92f, w * 0.44f, h * 0.14f, w * 0.64f, h * 0.44f)
-        path.cubicTo(w * 0.78f, h * 0.62f, w * 0.84f, h * 0.24f, w * 0.92f, h * 0.36f)
-
-        if (style.softEdge) {
-            for (pass in 0 until 3) {
-                canvas.drawPath(path, Paint(paint).apply {
-                    alpha = (Color.alpha(c) * (0.55f - pass * 0.15f)).toInt()
-                    strokeWidth = paint.strokeWidth * (1f + pass * 0.45f)
-                })
-            }
-            return
-        }
-        if (style.glow) {
-            canvas.drawPath(path, Paint(paint).apply { alpha = 70; strokeWidth = paint.strokeWidth * 2.4f })
-        }
-        canvas.drawPath(path, paint)
-        if (style.inkHighlight) {
-            canvas.drawPath(path, Paint(paint).apply {
-                strokeWidth = paint.strokeWidth * 0.3f
-                color = Color.argb(80, 255, 255, 255)
-            })
-        }
-        canvas.restoreToCount(saved)
-        if (style.grain) {
-            grain.color = Color.argb(
-                (Color.alpha(c) * 0.45f).toInt(), Color.red(c), Color.green(c), Color.blue(c),
-            )
-            var t = 0f
-            while (t < 1f) {
-                canvas.drawCircle(
-                    w * (0.10f + t * 0.82f),
-                    h * (0.56f - 0.22f * kotlin.math.sin(t * 9.4f)),
-                    0.6f * resources.displayMetrics.density,
-                    grain,
-                )
-                t += 0.012f
-            }
-        }
+        if (width == 0) return
+        val s = sample ?: build().also { sample = it }
+        engine.draw(canvas, s, 0f)
     }
 }

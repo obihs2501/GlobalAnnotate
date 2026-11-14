@@ -6,7 +6,7 @@ import android.graphics.Color
 import android.graphics.RectF
 import android.util.AttributeSet
 
-/** Saturation rail: white → the current hue at full saturation. */
+/** Saturation rail: grey → base colour. */
 class ColorPickerSaturationView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -15,8 +15,14 @@ class ColorPickerSaturationView @JvmOverloads constructor(
     override fun drawTrack(canvas: Canvas, track: RectF, radius: Float) {
         val hsv = FloatArray(3)
         Color.colorToHSV(baseColor, hsv)
-        val full = Color.HSVToColor(floatArrayOf(hsv[0], 1f, 1f))
-        trackPaint.shader = horizontalGradient(Color.WHITE, full)
+        val grey = Color.HSVToColor(floatArrayOf(hsv[0], 0f, hsv[2]))
+        val full = Color.HSVToColor(floatArrayOf(hsv[0], 1f, hsv[2]))
+        trackPaint.shader = horizontalGradient(grey, full)
         canvas.drawRoundRect(track, radius, radius, trackPaint)
+        trackPaint.shader = null
     }
+
+    override fun thumbCentreColor(): Int = baseColor
+
+    override fun ringColor(): Int = Color.WHITE
 }

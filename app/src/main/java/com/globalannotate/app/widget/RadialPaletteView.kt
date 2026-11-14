@@ -4,166 +4,157 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
-import android.graphics.PointF
+import android.graphics.Path
 import android.graphics.RectF
 import android.view.MotionEvent
 import android.view.View
-import androidx.core.content.ContextCompat
-import com.globalannotate.app.R
+import com.globalannotate.app.model.PenStyle
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
 
 /**
- * Apple Pencil Pro-style radial tool ring, summoned by squeezing the pen.
- * Styled with HyperOS/Miuix surfaces: translucent Cloud card, #0D84FF accent,
- * colour dots per sector instead of tinted wedges.
+ * Squeeze palette, modelled on the tool palette Apple Pencil Pro pops up at the
+ * tip: a compact arc of the five pens plus eraser, undo and colour. Slide the
+ * pen to a slot and lift to pick it; lift in the centre to dismiss.
  */
 class RadialPaletteView(context: Context) : View(context) {
 
-    enum class PaletteAction { PEN, ERASER, RED, BLUE, BLACK, UNDO, CLEAR, CLOSE }
-
     interface Listener {
-        fun onPaletteAction(action: PaletteAction)
+        fun onPalettePick(action: Action)
+        fun onPaletteDismiss()
     }
+
+    enum class Action { BALLPOINT, PENCIL, INK_PEN, MARKER, WATER_COLOR, ERASER, UNDO, COLOR }
 
     var listener: Listener? = null
+    private var anchorX = 0f
+    private var anchorY = 0f
+    private var hovered = -1
+    private var visible = false
+    private val density = resources.displayMetrics.density
 
-    private val actions = enumValues<PaletteAction>()
-    private val labels = listOf("钢笔", "橡皮", "红", "蓝", "黑", "撤销", "清空", "关闭")
-    private val dots = listOf(
-        Color.parseColor("#202124"),
-        Color.parseColor("#9AA0A6"),
-        Color.parseColor("#D93025"),
-        Color.parseColor("#0D84FF"),
-        Color.parseColor("#202124"),
-        Color.parseColor("#9AA0A6"),
-        Color.parseColor("#9AA0A6"),
-        Color.parseColor("#9AA0A6"),
+    private val items = listOf(
+        Action.BALLPOINT to "圆珠笔",
+        Action.PENCIL to "铅笔",
+        Action.INK_PEN to "钢笔",
+        Action.MARKER to "马克笔",
+        Action.WATER_COLOR to "水彩笔",
+        Action.ERASER to "橡皮",
+        Action.UNDO to "撤销",
+        Action.COLOR to "颜色",
     )
 
-    private val outerRadius = dp(112).toFloat()
-    private val innerRadius = dp(34).toFloat()
-    private val center = PointF(0f, 0f)
-    private var pressedIndex = -1
-
-    private val sectorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-    private val pressedPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = ContextCompat.getColor(context, R.color.ga_tab_selected)
-    }
-    private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        color = Color.argb(26, 0, 0, 0)
-        strokeWidth = dp(1).toFloat()
-    }
-    private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
-    private val holePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = ContextCompat.getColor(context, R.color.ga_panel_bg)
-    }
-    private val holeRing = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        color = ContextCompat.getColor(context, R.color.ga_accent)
-        strokeWidth = dp(2).toFloat()
-    }
+    private val ringRadius get() = 104 * density
+    private val itemRadius get() = 23 * density
+    private val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val itemPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = ContextCompat.getColor(context, R.color.ga_text_primary)
-        textSize = dp(12).toFloat()
+        color = Color.WHITE
         textAlign = Paint.Align.CENTER
+        textSize = 12.5f * density
+        typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
     }
-
-    init {
-        visibility = GONE
-        setBackgroundColor(Color.TRANSPARENT)
+    private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        textAlign = Paint.Align.CENTER
+        textSize = 12f * density
+        alpha = 200
+    }
+    private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(70, 0, 0, 0)
     }
 
     fun showAt(x: Float, y: Float) {
-        center.set(x, y)
-        pressedIndex = -1
-        visibility = VISIBLE
-        bringToFront()
+        anchorX = x.coerceIn(ringRadius + itemRadius, width - ringRadius - itemRadius)
+        anchorY = y.coerceIn(ringRadius + itemRadius, height - ringRadius - itemRadius)
+        hovered = -1
+        visible = true
         invalidate()
     }
 
     fun hide() {
-        visibility = GONE
-        pressedIndex = -1
+        visible = false
+        hovered = -1
         invalidate()
     }
 
-    private fun clampedCenter(): PointF {
-        val r = outerRadius
-        val cx = if (width > 2 * r) center.x.coerceIn(r, width - r) else width / 2f
-        val cy = if (height > 2 * r) center.y.coerceIn(r, height - r) else height / 2f
-        return PointF(cx, cy)
+    fun isOpen(): Boolean = visible
+
+    fun positionOf(index: Int): FloatArray {
+        val start = -Math.PI * 0.95
+        val step = Math.PI * 1.9 / (items.size - 1)
+        val angle = start + step * index
+        return floatArrayOf(
+            anchorX + (cos(angle) * ringRadius).toFloat(),
+            anchorY + (sin(angle) * ringRadius).toFloat(),
+        )
     }
 
     override fun onDraw(canvas: Canvas) {
-        if (visibility != VISIBLE) return
-        val c = clampedCenter()
-        val rect = RectF(c.x - outerRadius, c.y - outerRadius, c.x + outerRadius, c.y + outerRadius)
+        if (!visible) return
+        // A soft disc behind the arc so labels stay legible on any page.
+        bgPaint.color = Color.argb(150, 20, 20, 20)
+        canvas.drawCircle(anchorX, anchorY, ringRadius + itemRadius + 12 * density, bgPaint)
 
-        for (i in labels.indices) {
-            val start = -90f + i * 45f - 22.5f
-            sectorPaint.color = ContextCompat.getColor(context, R.color.ga_panel_bg)
-            canvas.drawArc(rect, start, 45f, true, if (i == pressedIndex) pressedPaint else sectorPaint)
-            canvas.drawArc(rect, start, 45f, true, ringPaint)
-
-            val mid = Math.toRadians((start + 22.5f).toDouble())
-            val lx = c.x + (outerRadius * 0.70f * cos(mid)).toFloat()
-            val ly = c.y + (outerRadius * 0.70f * sin(mid)).toFloat()
-
-            dotPaint.color = dots[i]
-            canvas.drawCircle(lx, ly - dp(5), dp(6), dotPaint)
-            canvas.drawText(labels[i], lx, ly + dp(13), textPaint)
+        for ((index, item) in items.withIndex()) {
+            val p = positionOf(index)
+            canvas.drawCircle(p[0], p[1] + 2 * density, itemRadius + 3 * density, shadowPaint)
+            itemPaint.color = if (index == hovered) Color.parseColor("#3482FF") else Color.argb(235, 48, 48, 48)
+            canvas.drawCircle(p[0], p[1], itemRadius, itemPaint)
+            // Tiny glyph: first char of the label reads clearly at 23dp.
+            textPaint.color = Color.WHITE
+            val first = item.second.substring(0, 1)
+            canvas.drawText(first, p[0], p[1] + textPaint.textSize * 0.36f, textPaint)
         }
+        canvas.drawText("松手选择 · 中心取消", anchorX, anchorY + 4 * density, labelPaint)
+    }
 
-        canvas.drawCircle(c.x, c.y, innerRadius, holePaint)
-        canvas.drawCircle(c.x, c.y, innerRadius, holeRing)
+    /**
+     * The pen never "touches" this window (it is a floating overlay above the
+     * annotation layer), so selection travels through [onHover] while the user
+     * moves the pen inside the arc, and [commit] when the squeeze is released.
+     */
+    fun onHover(x: Float, y: Float) {
+        if (!visible) return
+        var best = -1
+        var bestDist = Float.MAX_VALUE
+        for (i in items.indices) {
+            val p = positionOf(i)
+            val d = hypot(x - p[0], y - p[1])
+            if (d < itemRadius * 1.5f && d < bestDist) {
+                best = i
+                bestDist = d
+            }
+        }
+        if (best != hovered) {
+            hovered = best
+            invalidate()
+        }
+    }
+
+    /** @return true when something was picked. */
+    fun commit(x: Float, y: Float): Boolean {
+        onHover(x, y)
+        val picked = hovered
+        hide()
+        if (picked >= 0) {
+            listener?.onPalettePick(items[picked].first)
+            return true
+        }
+        if (hypot(x - anchorX, y - anchorY) < ringRadius * 0.55f) {
+            listener?.onPaletteDismiss()
+            return false
+        }
+        listener?.onPaletteDismiss()
+        return false
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        val c = clampedCenter()
-        val dx = event.x - c.x
-        val dy = event.y - c.y
-        val distance = hypot(dx, dy)
-        val index = sectorIndex(dx, dy)
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                pressedIndex = index
-                invalidate()
-                return true
-            }
-            MotionEvent.ACTION_MOVE -> {
-                pressedIndex = index
-                invalidate()
-                return true
-            }
-            MotionEvent.ACTION_UP -> {
-                val chosen = pressedIndex
-                hide()
-                if (chosen in actions.indices && distance in innerRadius..outerRadius) {
-                    listener?.onPaletteAction(actions[chosen])
-                }
-                return true
-            }
-            MotionEvent.ACTION_CANCEL -> hide()
-        }
+        // Fallback for finger taps / AOSP stylus injection in service mode.
+        onHover(event.x, event.y)
+        if (event.actionMasked == MotionEvent.ACTION_UP) commit(event.x, event.y)
         return true
-    }
-
-    private fun sectorIndex(dx: Float, dy: Float): Int {
-        val angle = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
-        var normalized = angle + 90f + 22.5f
-        if (normalized < 0f) normalized += 360f
-        return (normalized / 45f).toInt() % 8
-    }
-
-    private fun dp(value: Int): Float = value * resources.displayMetrics.density
-
-    companion object {
-        fun minimumRadiusDp(): Int = 112
     }
 }

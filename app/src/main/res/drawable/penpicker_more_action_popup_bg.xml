@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Mi Canvas drawable/penpicker_more_action_popup_bg.xml, unchanged. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="@color/penpicker_background_color" />
-    <corners android:radius="@dimen/penpicker_more_action_background_radius" />
+    <solid android:color="@color/penpicker_background_color"/>
+    <corners android:radius="@dimen/penpicker_more_action_background_radius"/>
 </shape>

@@ -11,6 +11,7 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.PointF
+import android.graphics.Rect
 import android.os.IBinder
 import android.util.Log
 import android.view.Gravity
@@ -18,21 +19,23 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.view.animation.PathInterpolator
+import android.widget.FrameLayout
 import android.widget.Toast
 import androidx.core.app.ServiceCompat
 import com.globalannotate.app.canvas.AnnotationCanvasView
-import com.globalannotate.app.ink.SmartInk
+import com.globalannotate.app.export.LongCapture
 import com.globalannotate.app.model.BrushConfig
 import com.globalannotate.app.model.EraserMode
 import com.globalannotate.app.model.PenStyle
-import com.globalannotate.app.stylus.PenEngineClient
+import com.globalannotate.app.root.HelperClient
+import com.globalannotate.app.root.HelperProtocol
+import com.globalannotate.app.sys.Hidden
 import com.globalannotate.app.toolbar.ToolbarView
 import com.globalannotate.app.widget.BrushGlyph
 import com.globalannotate.app.widget.BrushPanel
 import com.globalannotate.app.widget.ColorPanel
 import com.globalannotate.app.widget.EraserPanel
 import com.globalannotate.app.widget.GesturePanel
-import com.globalannotate.app.widget.IconButton
 import com.globalannotate.app.widget.MoreMenu
 import com.globalannotate.app.widget.RadialPaletteView
 import kotlinx.coroutines.CoroutineScope
@@ -42,11 +45,23 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
+import kotlin.math.hypot
 
 /**
- * Overlay host. Popups are anchored above the brush that opened them, the bar
- * auto-collapses as soon as the pen touches the surface (Mi Canvas behaviour),
- * and exiting is a dedicated back button in the top-left corner.
+ * Overlay host.
+ *
+ * Input model (the reason this app needs root):
+ *
+ *  - the root helper owns a stylus-only input window, so **the pen annotates
+ *    and the finger keeps scrolling the app underneath** at the same time —
+ *    Huawei's 全局批注 behaviour, with no mode switch;
+ *  - the finger spy also drives scroll-follow, so ink stays glued to the page;
+ *  - the helper reads the pen's raw keyboard, so a squeeze summons the palette
+ *    from any app even though the overlay never takes focus.
+ *
+ * Without root the service still works: the canvas becomes touchable and the
+ * pen draws through the normal touch path.
  */
 class AnnotationService : Service(),
     ToolbarView.Listener,
@@ -65,38 +80,41 @@ class AnnotationService : Service(),
     private lateinit var toolbarParams: WindowManager.LayoutParams
     private lateinit var orb: BrushGlyph
     private lateinit var orbParams: WindowManager.LayoutParams
+    private lateinit var popupHost: FrameLayout
+    private lateinit var popupParams: WindowManager.LayoutParams
+    private lateinit var dismissLayer: View
     private lateinit var palette: RadialPaletteView
     private lateinit var paletteParams: WindowManager.LayoutParams
-    private lateinit var colorPanel: ColorPanel
-    private lateinit var colorPanelParams: WindowManager.LayoutParams
-    private lateinit var brushPanel: BrushPanel
-    private lateinit var brushPanelParams: WindowManager.LayoutParams
-    private lateinit var eraserPanel: EraserPanel
-    private lateinit var eraserPanelParams: WindowManager.LayoutParams
-    private lateinit var gesturePanel: GesturePanel
-    private lateinit var gesturePanelParams: WindowManager.LayoutParams
-    private lateinit var moreMenu: MoreMenu
-    private lateinit var moreMenuParams: WindowManager.LayoutParams
 
-    private var mode: OverlayMode = OverlayMode.DRAW
+    private lateinit var colorPanel: ColorPanel
+    private lateinit var brushPanel: BrushPanel
+    private lateinit var eraserPanel: EraserPanel
+    private lateinit var gesturePanel: GesturePanel
+    private lateinit var moreMenu: MoreMenu
+
+    private var helper: HelperClient? = null
+    private var helperReady = 0
     private var active = false
-    private var toolbarVisible = true
+    private var toolbarVisible = false
     private var autoMinimize = true
-    private var penEngine: PenEngineClient? = null
-    private val penTip = PointF(0f, 0f)
+    private var fingerDraw = false
+    private var openPanel: View? = null
+
+    private var screenWidth = 0
+    private var screenHeight = 0
+    private val density get() = resources.displayMetrics.density
+    private val penTip = PointF()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val gestureMap = mutableMapOf<String, GestureAction>()
     private val prefs by lazy { getSharedPreferences(PREFS, MODE_PRIVATE) }
-    private var barDragBaseX = 0
-    private var barDragBaseY = 0
-    private var screenWidth = 0
-    private var screenHeight = 0
 
-    private lateinit var scrim: View
-    private lateinit var scrimParams: WindowManager.LayoutParams
-
-    private val panels: List<View>
-        get() = listOf(colorPanel, brushPanel, eraserPanel, gesturePanel, moreMenu)
+    private var lastFingerY = 0f
+    private var fingerPointerDown = false
+    private var fingerScrolling = false
+    private var fingerTouchedOutside = false
+    private var squeezeCount = 0
+    private var lastSqueezeMs = 0L
+    private var busyExporting = false
 
     override fun onCreate() {
         super.onCreate()
@@ -105,227 +123,298 @@ class AnnotationService : Service(),
             this, NOTIFICATION_ID, buildNotification(),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE,
         )
+        Hidden.unlocked
 
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         val bounds = windowManager.maximumWindowMetrics.bounds
         screenWidth = bounds.width()
         screenHeight = bounds.height()
-        penTip.set(screenWidth / 2f, bounds.height() / 2f)
+        penTip.set(screenWidth / 2f, screenHeight / 2f)
 
         canvas = AnnotationCanvasView(this).apply {
-            onGesture = ::applyGesture
-            onStateChanged = ::refreshToolbar
+            onStateChanged = { refreshToolbar() }
             onPenDown = { if (autoMinimize) collapseBar() }
         }
-        canvas.setOnHoverListener { _, event ->
-            if (event.actionMasked == MotionEvent.ACTION_HOVER_ENTER ||
-                event.actionMasked == MotionEvent.ACTION_HOVER_MOVE
-            ) penTip.set(event.x, event.y)
-            false
+        canvas.setOnTouchListener { _, event ->
+            // Fallback (no root helper): the window is touchable and the pen
+            // arrives through the regular dispatch path.
+            if (helperReady and HelperProtocol.READY_INTERCEPT != 0) return@setOnTouchListener false
+            if (event.actionMasked == MotionEvent.ACTION_DOWN) closePanels()
+            canvas.injectStylusEvent(event)
+            true
         }
 
-        toolbar = ToolbarView(this, this)
+        toolbar = ToolbarView(this, this).apply { dragListener = this@AnnotationService }
         orb = BrushGlyph(this).apply {
-            // Collapsed bubble: one small pen on an orb background, like the
-            // original 56dp bubble rather than a stretched toolbar icon.
-            large = false
             setBackgroundResource(R.drawable.bg_orb)
             elevation = dp(6).toFloat()
-            setOnClickListener { toggleToolbar() }
+            setOnClickListener { expandBar() }
         }
-        palette = RadialPaletteView(this).apply { listener = this@AnnotationService }
-        colorPanel = ColorPanel(this, this)
-        brushPanel = BrushPanel(this, this)
-        eraserPanel = EraserPanel(this, this)
-        gesturePanel = GesturePanel(this, this)
-        moreMenu = MoreMenu(this, this)
-
-        val baseFlags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-        val passiveFlags = baseFlags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-
-        canvasParams = params(MATCH, MATCH, baseFlags)
-        // Fixed size: a WRAP overlay window measures to 0 before its content
-        // lays out, which made the whole bar disappear.
-        // Hug the content: a fixed 620dp bar left an empty strip on the right.
-        val barWidth = toolbar.contentWidthPx()
-            .coerceIn(dp(420), (screenWidth - dp(24)).coerceAtLeast(dp(320)))
-        toolbarParams = params(barWidth, dp(ToolbarView.WINDOW_HEIGHT_DP), passiveFlags).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = prefs.getInt(KEY_BAR_X, -1).let {
-                if (it >= 0) it else ((screenWidth - barWidth) / 2).coerceAtLeast(0)
-            }
-            y = prefs.getInt(KEY_BAR_Y, -1).let {
-                if (it >= 0) it else (screenHeight - dp(ToolbarView.WINDOW_HEIGHT_DP) - dp(16)).coerceAtLeast(0)
-            }
-        }
-        orbParams = params(dp(56), dp(56), passiveFlags).apply {
-            gravity = Gravity.BOTTOM or Gravity.END
-            x = dp(24)
-            y = dp(24)
-        }
-        paletteParams = params(MATCH, MATCH, passiveFlags)
-        colorPanelParams = anchoredParams(dp(360), dp(571), passiveFlags)
-        brushPanelParams = anchoredParams(dp(288), dp(420), passiveFlags)
-        eraserPanelParams = anchoredParams(dp(288), dp(200), passiveFlags)
-        gesturePanelParams = anchoredParams(dp(288), dp(320), passiveFlags)
-        moreMenuParams = anchoredParams(dp(200), WRAP, passiveFlags)
-
-        // Invisible full-screen catcher: any tap outside an open panel dismisses
-        // it, exactly like PopupWindow outside-touch in Mi Canvas.
-        scrim = View(this).apply {
+        popupHost = FrameLayout(this)
+        dismissLayer = View(this).apply {
             setBackgroundColor(Color.TRANSPARENT)
             isClickable = true
             setOnClickListener { closePanels() }
+        }
+        palette = RadialPaletteView(this).apply {
+            listener = this@AnnotationService
             visibility = View.GONE
         }
-        scrimParams = params(MATCH, MATCH, passiveFlags)
-        windowManager.addView(scrim, scrimParams)
-        windowManager.addView(canvas, canvasParams)
-        windowManager.addView(toolbar, toolbarParams)
-        // The first measurement happens before child layout, so correct the
-        // window width once the row is measured (removes the trailing gap).
-        toolbar.post {
-            val exact = toolbar.contentWidthPx()
-            if (exact > 0 && exact != toolbarParams.width) {
-                toolbarParams.width = exact.coerceIn(dp(420), screenWidth - dp(24))
-                runCatching { windowManager.updateViewLayout(toolbar, toolbarParams) }
-            }
-        }
-        windowManager.addView(palette, paletteParams)
-        windowManager.addView(colorPanel, colorPanelParams)
-        windowManager.addView(brushPanel, brushPanelParams)
-        windowManager.addView(eraserPanel, eraserPanelParams)
-        windowManager.addView(gesturePanel, gesturePanelParams)
-        windowManager.addView(moreMenu, moreMenuParams)
-        windowManager.addView(orb, orbParams)
 
-        panels.forEach { it.visibility = View.GONE }
+        colorPanel = ColorPanel(this, this)
+        brushPanel = BrushPanel(this, this)
+        eraserPanel = EraserPanel(this, this)
+        moreMenu = MoreMenu(this, this)
+        gesturePanel = GesturePanel(this, this)
+        gesturePanel.setWillNotDraw(false)
+
+        popupHost.addView(dismissLayer, FrameLayout.LayoutParams(MATCH, MATCH))
+        for (panel in listOf<View>(colorPanel, brushPanel, eraserPanel, moreMenu, gesturePanel)) {
+            panel.visibility = View.GONE
+            popupHost.addView(panel, FrameLayout.LayoutParams(WRAP, WRAP))
+        }
+        popupHost.visibility = View.GONE
+
+        val base = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        val helperFlags = base or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+        canvasParams = overlay(MATCH, MATCH, helperFlags)
+        val barWidth = toolbar.contentWidthPx().coerceAtLeast(dp(360))
+        toolbarParams = overlay(barWidth, dp(BAR_HEIGHT_DP), base).apply {
+            x = prefs.getInt(KEY_BAR_X, -1).let { if (it >= 0) it else (screenWidth - barWidth) / 2 }
+            y = prefs.getInt(KEY_BAR_Y, -1).let { if (it >= 0) it else screenHeight - dp(BAR_HEIGHT_DP) - dp(30) }
+        }
+        orbParams = overlay(dp(56), dp(56), base).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = screenWidth - dp(24 + 56)
+            y = screenHeight - dp(24 + 56)
+        }
+        popupParams = overlay(MATCH, MATCH, base)
+        paletteParams = overlay(MATCH, MATCH, helperFlags)
+
+        windowManager.addView(canvas, canvasParams)
+        windowManager.addView(orb, orbParams)
+        windowManager.addView(toolbar, toolbarParams)
+        windowManager.addView(popupHost, popupParams)
+        windowManager.addView(palette, paletteParams)
+        for (view in listOf(canvas, toolbar, orb, popupHost, palette)) {
+            Hidden.setSkipScreenshot(view, true)
+        }
+
         restoreBrush()
         restoreGestures()
-        gesturePanel.setActions(gestureMap)
+        gesturePanel.actions = gestureMap
+        toolbar.update(canvas.brush, false, false)
+        setActive(false)
         Session.service = this
         Session.canvas = canvas
-        setMode(OverlayMode.DRAW)
-        setActive(false)
+        startHelper()
+        scope.launch {
+            delay(3500)
+            if (helperReady == 0) {
+                Log.w(TAG, "helper not ready, falling back to a touchable canvas")
+                applyInputMode()
+            }
+        }
         notifyModule(Actions.SET_MODULE_ENABLED, true)
         isRunning = true
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent != null) handleRemoteAction(intent)
-        return START_STICKY
-    }
+    // ── helper ─────────────────────────────────────────────────────────────
 
-    fun handleRemoteAction(intent: Intent) {
-        when (intent.action) {
-            Actions.LAUNCH -> setActive(true)
-            Actions.TOGGLE -> setActive(!active)
-            "com.globalannotate.action.DEBUG" -> {
-                val skip = intent.getStringExtra("cmd") == "skip1"
-                for (view in listOf(canvas, toolbar, orb)) {
-                    val ok = com.globalannotate.app.sys.Hidden.setSkipScreenshot(view, skip)
-                    Log.i(TAG, "debug skip=$skip ok=$ok view=${view.javaClass.simpleName}")
+    private fun startHelper() {
+        val apk = applicationInfo.sourceDir
+        val client = HelperClient(apk, object : HelperClient.Callback {
+            override fun onHelperReady(flags: Int) {
+                helperReady = flags
+                Log.i(TAG, "helper ready flags=$flags")
+                applyInputMode()
+                if (active) {
+                    helper?.setOpacityLifted(true)
                 }
             }
-            Actions.GESTURE -> {
-                val name = intent.getStringExtra(Actions.EXTRA_GESTURE) ?: return
-                val gesture = runCatching { Gesture.valueOf(name) }.getOrNull() ?: return
-                applyRemoteGesture(gesture)
+
+            override fun onStylus(event: MotionEvent) = dispatchStylus(event)
+            override fun onFinger(event: MotionEvent) = dispatchFinger(event)
+            override fun onPenKey(scanCode: Int, value: Int, uptimeMs: Long) =
+                dispatchPenKey(scanCode, value)
+
+            override fun onHelperLog(message: String) = Log.i(TAG, "helper: $message")
+
+            override fun onHelperExit() {
+                helperReady = 0
+                applyInputMode()
+                helper = null
+                if (active) toast("root 助手未运行，已切换到兼容模式")
             }
-            Actions.SET_SPLIT_MODE -> setMode(
-                if (intent.getBooleanExtra(Actions.EXTRA_ENABLED, false)) OverlayMode.ROOT_SPLIT
-                else OverlayMode.DRAW,
-            )
+        })
+        helper = client
+        client.start()
+    }
+
+    /** Without the helper the canvas itself must become touchable. */
+    private fun applyInputMode() {
+        val intercept = helperReady and HelperProtocol.READY_INTERCEPT != 0
+        val flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            (if (intercept) WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE else 0) or
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+        if (canvasParams.flags != flags) {
+            canvasParams.flags = flags
+            runCatching { windowManager.updateViewLayout(canvas, canvasParams) }
+        }
+        val paletteFlags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            if (intercept) WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE else 0
+        if (paletteParams.flags != paletteFlags) {
+            paletteParams.flags = paletteFlags
+            runCatching { windowManager.updateViewLayout(palette, paletteParams) }
+        }
+        if (intercept) {
+            // Native touch dispatch keeps fingers going to the app underneath.
+            canvasParams.alpha = 1f
         }
     }
 
+    // ── stylus / finger / keys ─────────────────────────────────────────────
+
+    private fun dispatchStylus(event: MotionEvent) {
+        penTip.set(event.x, event.y)
+        if (palette.isOpen()) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_HOVER_MOVE, MotionEvent.ACTION_MOVE -> palette.onHover(event.x, event.y)
+                MotionEvent.ACTION_DOWN -> palette.onHover(event.x, event.y)
+                MotionEvent.ACTION_UP -> {
+                    palette.commit(event.x, event.y)
+                    palette.hide()
+                }
+                else -> Unit
+            }
+            return
+        }
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) closePanels()
+        canvas.injectStylusEvent(event)
+    }
+
+    private fun dispatchFinger(event: MotionEvent) {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                fingerPointerDown = true
+                fingerScrolling = false
+                fingerTouchedOutside = false
+                lastFingerY = event.y
+                if (openPanel != null) {
+                    val panel = openPanel ?: return
+                    val loc = IntArray(2)
+                    panel.getLocationOnScreen(loc)
+                    val inside = event.x >= loc[0] && event.x <= loc[0] + panel.width &&
+                        event.y >= loc[1] && event.y <= loc[1] + panel.height
+                    if (!inside) {
+                        closePanels()
+                        fingerTouchedOutside = true
+                    }
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (!fingerPointerDown || fingerTouchedOutside) return
+                val dy = event.y - lastFingerY
+                lastFingerY = event.y
+                if (abs(dy) < 0.01f) return
+                if (!fingerScrolling && abs(dy) > 2.5f * density) fingerScrolling = true
+                if (fingerScrolling && active && event.pointerCount == 1) {
+                    canvas.scrollBy(-dy)
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (fingerPointerDown && fingerScrolling) canvas.pruneOffscreen()
+                fingerPointerDown = false
+                fingerScrolling = false
+                fingerTouchedOutside = false
+            }
+        }
+    }
+
+    private fun dispatchPenKey(scanCode: Int, value: Int) {
+        if (value != 1) return
+        when (scanCode) {
+            GestureKeys.SCANCODE_SQUEEZE_RAW -> onSqueeze()
+            GestureKeys.SCANCODE_DOUBLE_TAP_RAW -> applyGesture(Gesture.DOUBLE_TAP)
+            else -> Log.d(TAG, "pen key scan=$scanCode")
+        }
+    }
+
+    private fun onSqueeze() {
+        val now = System.currentTimeMillis()
+        if (now - lastSqueezeMs < 320) {
+            squeezeCount++
+        } else {
+            squeezeCount = 1
+        }
+        lastSqueezeMs = now
+        if (squeezeCount >= 2) {
+            squeezeCount = 0
+            applyGesture(Gesture.DOUBLE_TAP)
+            return
+        }
+        if (!active) {
+            setActive(true)
+            return
+        }
+        if (palette.isOpen()) {
+            palette.commit(penTip.x, penTip.y)
+            palette.visibility = View.GONE
+            return
+        }
+        applyGesture(Gesture.SQUEEZE)
+    }
+
+    // ── activation ─────────────────────────────────────────────────────────
+
     private fun setActive(value: Boolean) {
+        if (active == value) return
         active = value
         Session.active = value
         canvas.visibility = if (value) View.VISIBLE else View.GONE
         orb.visibility = if (value) View.VISIBLE else View.GONE
-        applyToolbarVisibility()
-        if (!value) {
-            palette.hide()
-            closePanels()
-        }
-        applyCanvasFlags()
-        syncPenEngine()
-        refreshToolbar()
-    }
-
-    private fun setMode(next: OverlayMode) {
-        mode = next
-        Session.rootSplitActive = next == OverlayMode.ROOT_SPLIT
-        canvas.mode = next
-        applyCanvasFlags()
-        syncPenEngine()
-        notifyModule(Actions.SET_SPLIT_MODE, next == OverlayMode.ROOT_SPLIT)
-        refreshToolbar()
-    }
-
-    private fun applyCanvasFlags() {
-        var flags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-        when (mode) {
-            OverlayMode.DRAW -> canvasParams.alpha = 1f
-            OverlayMode.PASSTHROUGH, OverlayMode.ROOT_SPLIT -> {
-                flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                canvasParams.alpha = 0.79f
-            }
-        }
-        canvasParams.flags = flags
-        if (canvas.isAttachedToWindow) {
-            runCatching { windowManager.updateViewLayout(canvas, canvasParams) }
-        }
-        if (active && mode == OverlayMode.DRAW) canvas.requestGestureFocus()
-        else canvas.clearGestureFocus()
-    }
-
-    private fun syncPenEngine() {
-        if (active && mode == OverlayMode.DRAW) {
-            if (penEngine == null) penEngine = PenEngineClient(this)
-            penEngine?.connect()
+        if (value) {
+            expandBar()
+            helper?.setOpacityLifted(true)
+            helper?.setIntercept(helperReady and HelperProtocol.READY_INTERCEPT != 0)
         } else {
-            penEngine?.disconnect()
-            penEngine = null
+            toolbarVisible = false
+            closePanels()
+            palette.hide()
+            toolbar.visibility = View.GONE
+            helper?.setIntercept(false)
+            helper?.setOpacityLifted(false)
         }
+        refreshToolbar()
+        updateExclusion()
     }
 
-    private fun toggleToolbar() {
-        toolbarVisible = !toolbarVisible
-        if (toolbarVisible && !active) setActive(true)
-        applyToolbarVisibility()
+    private fun expandBar() {
+        if (!active) {
+            setActive(true)
+            return
+        }
+        toolbarVisible = true
+        toolbar.visibility = View.VISIBLE
+        refreshToolbar()
+        updateExclusion()
     }
 
     private fun collapseBar() {
         if (!toolbarVisible) return
         toolbarVisible = false
-        applyToolbarVisibility()
+        toolbar.visibility = View.GONE
         closePanels()
+        updateExclusion()
     }
 
-    private fun applyToolbarVisibility() {
-        if (::toolbar.isInitialized) {
-            toolbar.visibility = if (active && toolbarVisible) View.VISIBLE else View.GONE
-        }
-    }
-
-    private fun applyRemoteGesture(gesture: Gesture) {
-        if (!active) { setActive(true); return }
-        applyGesture(gesture)
-    }
-
-    /** Gestures go through the configurable map, defaulting to sensible actions. */
     private fun applyGesture(gesture: Gesture) {
         val action = gestureMap[gesture.name] ?: defaultAction(gesture)
         performAction(action)
     }
 
     private fun defaultAction(gesture: Gesture): GestureAction = when (gesture) {
-        Gesture.SQUEEZE -> GestureAction.OPEN_COLOR
+        Gesture.SQUEEZE -> GestureAction.OPEN_PALETTE
         Gesture.DOUBLE_TAP -> GestureAction.TOGGLE_ERASER
         Gesture.SLIDE_UP -> GestureAction.INCREASE_WIDTH
         Gesture.SLIDE_DOWN -> GestureAction.DECREASE_WIDTH
@@ -337,7 +426,11 @@ class AnnotationService : Service(),
             GestureAction.TOGGLE_OVERLAY -> setActive(!active)
             GestureAction.TOGGLE_ERASER -> {
                 canvas.brush = if (canvas.brush.style.isEraser) {
-                    canvas.brush.copy(style = PenStyle.INK_PEN, size = PenStyle.INK_PEN.defaultSize.toFloat())
+                    canvas.brush.copy(
+                        style = PenStyle.INK_PEN,
+                        size = PenStyle.INK_PEN.defaultSize.toFloat(),
+                        alpha = PenStyle.INK_PEN.defaultAlpha,
+                    )
                 } else {
                     canvas.brush.copy(style = PenStyle.ERASER)
                 }
@@ -346,7 +439,9 @@ class AnnotationService : Service(),
             GestureAction.CYCLE_TOOL -> {
                 val order = PenStyle.toolbarOrder
                 val next = order[(order.indexOf(canvas.brush.style) + 1) % order.size]
-                canvas.brush = canvas.brush.copy(style = next, size = next.defaultSize.toFloat(), alpha = next.defaultAlpha)
+                canvas.brush = canvas.brush.copy(
+                    style = next, size = next.defaultSize.toFloat(), alpha = next.defaultAlpha,
+                )
                 refreshToolbar()
             }
             GestureAction.UNDO -> canvas.undo()
@@ -354,21 +449,29 @@ class AnnotationService : Service(),
             GestureAction.CLEAR -> canvas.clear()
             GestureAction.INCREASE_WIDTH -> adjustSize(1)
             GestureAction.DECREASE_WIDTH -> adjustSize(-1)
-            GestureAction.TOGGLE_TOOLBAR -> toggleToolbar()
-            GestureAction.OPEN_COLOR -> togglePalette()
+            GestureAction.TOGGLE_TOOLBAR -> if (toolbarVisible) collapseBar() else expandBar()
+            GestureAction.OPEN_COLOR -> showColorPanel(penTip.x.toInt())
             GestureAction.CYCLE_COLOR -> cycleColor()
+            GestureAction.OPEN_PALETTE -> openPalette()
         }
     }
 
-    /** Squeeze → next quick colour, the "换颜色" shortcut. */
+    private fun openPalette() {
+        if (palette.isOpen()) {
+            palette.hide()
+            return
+        }
+        if (!active) setActive(true)
+        palette.showAt(penTip.x, penTip.y)
+        palette.visibility = View.VISIBLE
+    }
+
     private fun cycleColor() {
-        // Cycle the full palette so it reaches every colour the panel offers.
-        val paletteColors = BrushConfig.PALETTE
-        val index = paletteColors.indexOf(canvas.brush.color)
-        val next = paletteColors[(index + 1).mod(paletteColors.size)]
+        val colors = BrushConfig.QUICK_COLORS
+        val index = colors.indexOf(canvas.brush.color)
+        val next = colors[(index + 1).mod(colors.size)]
         canvas.brush = canvas.brush.copy(color = next)
         refreshToolbar()
-        colorPanel.color = next
     }
 
     private fun adjustSize(delta: Int) {
@@ -378,357 +481,403 @@ class AnnotationService : Service(),
                 PenStyle.ERASER.minSize.toFloat(), PenStyle.ERASER.maxSize.toFloat(),
             ))
         } else {
-            b.copy(size = (b.size + delta).coerceIn(
-                b.style.minSize.toFloat(), b.style.maxSize.toFloat(),
-            ))
+            b.copy(size = (b.size + delta).coerceIn(b.style.minSize.toFloat(), b.style.maxSize.toFloat()))
         }
         refreshToolbar()
     }
 
-    private fun togglePalette() {
-        if (!active) { setActive(true); return }
-        if (palette.visibility == View.VISIBLE) palette.hide()
-        else palette.showAt(penTip.x, penTip.y)
+    override fun onPalettePick(action: RadialPaletteView.Action) {
+        palette.visibility = View.GONE
+        val style = when (action) {
+            RadialPaletteView.Action.BALLPOINT -> PenStyle.BALLPOINT
+            RadialPaletteView.Action.PENCIL -> PenStyle.PENCIL
+            RadialPaletteView.Action.INK_PEN -> PenStyle.INK_PEN
+            RadialPaletteView.Action.MARKER -> PenStyle.MARKER
+            RadialPaletteView.Action.WATER_COLOR -> PenStyle.WATER_COLOR
+            RadialPaletteView.Action.ERASER -> PenStyle.ERASER
+            else -> null
+        }
+        when {
+            style != null -> {
+                canvas.brush = canvas.brush.copy(
+                    style = style,
+                    size = style.defaultSize.toFloat(),
+                    alpha = style.defaultAlpha,
+                )
+                refreshToolbar()
+            }
+            action == RadialPaletteView.Action.UNDO -> canvas.undo()
+            action == RadialPaletteView.Action.COLOR -> showColorPanel(penTip.x.toInt())
+        }
     }
 
-    override fun onPaletteAction(action: RadialPaletteView.PaletteAction) {
-        when (action) {
-            RadialPaletteView.PaletteAction.PEN -> canvas.brush = canvas.brush.copy(style = PenStyle.INK_PEN)
-            RadialPaletteView.PaletteAction.ERASER -> canvas.brush = canvas.brush.copy(style = PenStyle.ERASER)
-            RadialPaletteView.PaletteAction.RED -> canvas.brush = canvas.brush.copy(color = Color.parseColor("#D93025"))
-            RadialPaletteView.PaletteAction.BLUE -> canvas.brush = canvas.brush.copy(color = Color.parseColor("#1A73E8"))
-            RadialPaletteView.PaletteAction.BLACK -> canvas.brush = canvas.brush.copy(color = Color.parseColor("#202124"))
-            RadialPaletteView.PaletteAction.UNDO -> canvas.undo()
-            RadialPaletteView.PaletteAction.CLEAR -> canvas.clear()
-            RadialPaletteView.PaletteAction.CLOSE -> Unit
-        }
-        refreshToolbar()
+    override fun onPaletteDismiss() {
+        palette.visibility = View.GONE
     }
 
-    private fun refreshToolbar() {
-        if (::toolbar.isInitialized) {
-            toolbar.update(canvas.brush, mode, canvas.canUndo(), canvas.canRedo())
-        }
-        if (::orb.isInitialized) {
-            orb.style = canvas.brush.style
-            orb.color = canvas.brush.color
-        }
-        saveBrush()
-    }
+    // ── toolbar listener ───────────────────────────────────────────────────
 
-    // ── ToolbarView.Listener ────────────────────────────────────────────────
-    override fun onStyle(style: PenStyle, anchorX: Int) {
+    override fun onTool(style: PenStyle, anchorX: Int) {
         val same = canvas.brush.style == style
         if (!same) {
             canvas.brush = canvas.brush.copy(
                 style = style,
                 size = style.defaultSize.toFloat(),
                 alpha = style.defaultAlpha,
+                sensitivity = if (style == PenStyle.PENCIL) 0f else 0.38f,
             )
             refreshToolbar()
         }
         if (style.isEraser) {
             eraserPanel.brush = canvas.brush
-            showPanel(eraserPanel, anchorX, dp(288))
+            showPanel(eraserPanel, anchorX, dp(288), 0)
         } else {
             brushPanel.brush = canvas.brush
-            showPanel(brushPanel, anchorX, dp(288))
+            brushPanel.updateColor(canvas.brush.color)
+            showPanel(brushPanel, anchorX, dp(288), 0)
         }
     }
 
     override fun onColor(color: Int) {
         canvas.brush = canvas.brush.copy(color = color)
+        colorPanel.color = color
+        brushPanel.updateColor(color)
         refreshToolbar()
     }
 
-    override fun onOpenColorPanel(anchorX: Int) {
-        colorPanel.color = canvas.brush.color
-        colorPanel.opacity = canvas.brush.alpha
-        showPanel(colorPanel, anchorX, dp(360))
-    }
+    override fun onOpenColorPanel(anchorX: Int) = showColorPanel(anchorX)
 
-    override fun onOpenMoreMenu(anchorX: Int) {
-        moreMenu.setChecks(autoMinimize, canvas.allowFinger)
-        showPanel(moreMenu, anchorX, dp(200))
+    override fun onOpenMore(anchorX: Int) {
+        moreMenu.setChecks(autoMinimize, fingerDraw)
+        moreMenu.setLongShotEnabled(helper != null)
+        showPanel(moreMenu, anchorX, dp(200), 0)
     }
 
     override fun onUndo() { canvas.undo() }
     override fun onRedo() { canvas.redo() }
-    override fun onDragStart() {
-        barDragBaseX = toolbarParams.x
-        barDragBaseY = toolbarParams.y
-    }
 
+    override fun onDragStart() = Unit
     override fun onDrag(dx: Float, dy: Float) {
-        val maxX = (screenWidth - toolbarParams.width).coerceAtLeast(0)
-        val maxY = (screenHeight - toolbarParams.height).coerceAtLeast(0)
-        toolbarParams.x = (toolbarParams.x + dx.toInt()).coerceIn(0, maxX)
-        toolbarParams.y = (toolbarParams.y + dy.toInt()).coerceIn(0, maxY)
+        toolbarParams.x = (toolbarParams.x + dx.toInt()).coerceIn(0, (screenWidth - toolbarParams.width).coerceAtLeast(0))
+        toolbarParams.y = (toolbarParams.y + dy.toInt()).coerceIn(0, (screenHeight - toolbarParams.height).coerceAtLeast(0))
         runCatching { windowManager.updateViewLayout(toolbar, toolbarParams) }
     }
 
     override fun onDragEnd() {
         prefs.edit().putInt(KEY_BAR_X, toolbarParams.x).putInt(KEY_BAR_Y, toolbarParams.y).apply()
+        updateExclusion()
     }
 
-    override fun onCollapse() = collapseBar()
-    override fun onQuit() { stopSelf() }
+    // ── panels ─────────────────────────────────────────────────────────────
 
-    // ── ColorPanel.Listener ─────────────────────────────────────────────────
-    override fun onOpacity(alpha: Int) {
-        canvas.brush = canvas.brush.copy(alpha = alpha)
-        refreshToolbar()
+    private fun showColorPanel(anchorX: Int) {
+        colorPanel.color = canvas.brush.color
+        colorPanel.setAlphaValue(canvas.brush.alpha)
+        showPanel(colorPanel, anchorX, dp(360), dp(571))
     }
-    override fun onPipette() = pickColorFromScreen()
-    override fun onClose() = closePanels()
 
-    // ── BrushPanel.Listener ─────────────────────────────────────────────────
+    private fun showPanel(panel: View, anchorX: Int, widthPx: Int, fixedHeightPx: Int) {
+        val already = openPanel === panel && popupHost.visibility == View.VISIBLE
+        closePanels(animate = false)
+        if (already) return
+        val lp = panel.layoutParams as FrameLayout.LayoutParams
+        lp.width = widthPx
+        measurePanel(panel, widthPx)
+        lp.height = if (fixedHeightPx > 0) fixedHeightPx else panel.measuredHeight
+        lp.height = lp.height.coerceIn(dp(64), screenHeight - dp(80))
+        val maxX = (screenWidth - widthPx - dp(8)).coerceAtLeast(0)
+        lp.leftMargin = (anchorX - widthPx / 2).coerceIn(dp(8), maxX)
+        val above = toolbarParams.y - lp.height - dp(10)
+        lp.topMargin = if (above >= dp(12)) above else (toolbarParams.y - dp(8) - lp.height).coerceAtLeast(dp(12))
+        panel.layoutParams = lp
+        panel.visibility = View.VISIBLE
+        openPanel = panel
+        popupHost.visibility = View.VISIBLE
+        panel.alpha = 0f
+        panel.scaleX = 0.96f
+        panel.scaleY = 0.96f
+        panel.animate().alpha(1f).scaleX(1f).scaleY(1f)
+            .setDuration(150).setInterpolator(PANEL_EASE).start()
+        updateExclusion()
+    }
+
+    private fun measurePanel(panel: View, widthPx: Int) {
+        panel.measure(
+            View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+    }
+
+    private fun closePanels(animate: Boolean = true) {
+        val panel = openPanel ?: return
+        openPanel = null
+        if (animate) {
+            panel.animate().alpha(0f).scaleX(0.96f).scaleY(0.96f)
+                .setDuration(120).setInterpolator(PANEL_EASE)
+                .withEndAction {
+                    panel.visibility = View.GONE
+                    popupHost.visibility = View.GONE
+                }.start()
+        } else {
+            panel.animate().cancel()
+            panel.visibility = View.GONE
+            popupHost.visibility = View.GONE
+        }
+        updateExclusion()
+    }
+
+    /** Tell the helper which screen rects must keep their normal input routing. */
+    private fun updateExclusion() {
+        val client = helper ?: return
+        if (helperReady and HelperProtocol.READY_INTERCEPT == 0) return
+        val rects = ArrayList<Rect>()
+        fun add(view: View, visible: Boolean) {
+            if (!visible || view.width == 0) return
+            val loc = IntArray(2)
+            view.getLocationOnScreen(loc)
+            rects.add(Rect(loc[0], loc[1], loc[0] + view.width, loc[1] + view.height))
+        }
+        add(toolbar, toolbarVisible)
+        add(orb, active)
+        openPanel?.let { add(it, true) }
+        client.setExcludedRegion(rects)
+    }
+
+    // ── panel listeners ────────────────────────────────────────────────────
+
     override fun onParam(kind: BrushPanel.ParamKind, value: Float) {
         val b = canvas.brush
         canvas.brush = when (kind) {
             BrushPanel.ParamKind.SIZE ->
                 b.copy(size = b.style.minSize + value * (b.style.maxSize - b.style.minSize))
             BrushPanel.ParamKind.SENSITIVITY -> b.copy(sensitivity = value)
-            BrushPanel.ParamKind.TIP -> b.copy(tipSize = 1f + value * 3f)
+            BrushPanel.ParamKind.TIP -> b.copy(tipSize = (1 + (value * 3).toInt()).coerceIn(1, 4))
             BrushPanel.ParamKind.ALPHA -> b.copy(alpha = (value * 255f).toInt().coerceIn(0, 255))
         }
         refreshToolbar()
-        brushPanel.applyBrush(canvas.brush)
+        brushPanel.brush = canvas.brush
     }
 
-    // ── EraserPanel.Listener ────────────────────────────────────────────────
     override fun onMode(mode: EraserMode) {
         canvas.brush = canvas.brush.copy(eraserMode = mode)
         refreshToolbar()
         eraserPanel.brush = canvas.brush
     }
+
     override fun onSize(size: Float) {
         canvas.brush = canvas.brush.copy(eraserSize = size)
         refreshToolbar()
     }
 
-    // ── GesturePanel.Listener ───────────────────────────────────────────────
+    override fun onAlpha(alpha: Int) {
+        canvas.brush = canvas.brush.copy(alpha = alpha)
+        refreshToolbar()
+    }
+
+    override fun onPipette() = pickColorFromScreen()
+
     override fun onAction(gesture: String, action: GestureAction) {
         gestureMap[gesture] = action
         saveGestures()
     }
 
-    override fun onExpandedChanged() {
-        // The panel scrolls now, so expanding an action list needs no resize.
-    }
-
-    // ── MoreMenu.Listener ───────────────────────────────────────────────────
     override fun onGestureSettings() {
-        gesturePanel.setActions(gestureMap)
-        showPanel(gesturePanel, screenWidth / 2, dp(288))
+        gesturePanel.actions = gestureMap
+        showPanel(gesturePanel, screenWidth / 2, dp(288), 0)
     }
-    override fun onAutoMinimize(enabled: Boolean) { autoMinimize = enabled }
-    override fun onFingerDraw(enabled: Boolean) { canvas.allowFinger = enabled }
-    override fun onCycleMode() {
-        setMode(
-            when (mode) {
-                OverlayMode.DRAW -> OverlayMode.PASSTHROUGH
-                OverlayMode.PASSTHROUGH -> OverlayMode.ROOT_SPLIT
-                OverlayMode.ROOT_SPLIT -> OverlayMode.DRAW
-            },
-        )
-        closePanels()
-    }
-    override fun onSavePng() { export(pdf = false); closePanels() }
-    override fun onSavePdf() { export(pdf = true); closePanels() }
+
+    override fun onLongShot() { closePanels(); captureLongShot() }
+    override fun onSavePng() { closePanels(); exportPng() }
+    override fun onSavePdf() { closePanels(); exportPdf() }
     override fun onClear() { canvas.clear(); closePanels() }
+    override fun onAutoMinimize(enabled: Boolean) { autoMinimize = enabled }
+    override fun onFingerDraw(enabled: Boolean) { fingerDraw = enabled; applyInputMode() }
+    override fun onQuit() { closePanels(); stopSelf() }
 
-    /** Shows the popup above the tapped brush; tapping the same entry closes it. */
-    private fun showPanel(target: View, anchorX: Int, widthPx: Int) {
-        val alreadyOpen = target.visibility == View.VISIBLE
-        panels.forEach { it.visibility = View.GONE }
-        if (alreadyOpen) {
-            palette.hide()
-            return
-        }
-        val lp = paramsFor(target)
-        // Measure the real content: hand-summed paddings always clipped a row.
-        fitPanelHeight(target, lp)
-        lp.x = (anchorX - widthPx / 2).coerceIn(dp(8), (screenWidth - widthPx - dp(8)).coerceAtLeast(dp(8)))
-        showScrim()
-        target.alpha = 0f
-        target.scaleX = PANEL_ENTER_SCALE
-        target.scaleY = PANEL_ENTER_SCALE
-        // Keep the whole panel on screen: Mi Canvas pops up above the bar and
-        // slides up when there is not enough room above it.
-        val topLimit = dp(16)
-        val bottomLimit = dp(122)
-        val overTop = screenHeight - bottomLimit - lp.height
-        if (overTop < topLimit) {
-            lp.y = (screenHeight - lp.height - topLimit).coerceAtLeast(0)
-        } else {
-            lp.y = bottomLimit
-        }
-        target.visibility = View.VISIBLE
-        runCatching { windowManager.updateViewLayout(target, lp) }
-        target.animate().alpha(1f).scaleX(1f).scaleY(1f)
-            .setDuration(PANEL_ANIM_MS).setInterpolator(PanelInterpolator).start()
-        palette.hide()
+    // ── remote actions ─────────────────────────────────────────────────────
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        intent?.let { handleRemoteAction(it) }
+        return START_STICKY
     }
 
-    private fun paramsFor(view: View): WindowManager.LayoutParams = when (view) {
-        canvas -> canvasParams
-        toolbar -> toolbarParams
-        orb -> orbParams
-        palette -> paletteParams
-        scrim -> scrimParams
-        colorPanel -> colorPanelParams
-        brushPanel -> brushPanelParams
-        eraserPanel -> eraserPanelParams
-        gesturePanel -> gesturePanelParams
-        moreMenu -> moreMenuParams
-        else -> throw IllegalArgumentException("no window params for $view")
-    }
-
-    private fun showScrim() {
-        if (!::scrim.isInitialized) return
-        scrim.visibility = View.VISIBLE
-    }
-
-    private fun hideScrim() {
-        if (!::scrim.isInitialized) return
-        scrim.visibility = View.GONE
-    }
-
-    /** Measure the panel with its real width so the window never clips content. */
-    private fun fitPanelHeight(view: View, lp: WindowManager.LayoutParams) {
-        // The colour panel is a fixed-size design (571dp), like Mi Canvas.
-        if (view === colorPanel) {
-            lp.height = dp(571)
-            return
-        }
-        val widthPx = if (lp.width > 0) lp.width else dp(288)
-        view.measure(
-            View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
-        )
-        var height = view.measuredHeight
-        if (height <= 0 && view is android.view.ViewGroup && view.childCount > 0) {
-            val child = view.getChildAt(0)
-            child.measure(
-                View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
-            )
-            height = child.measuredHeight
-        }
-        val maxHeight = if (view === gesturePanel) {
-            (screenHeight * 0.72f).toInt()
-        } else {
-            screenHeight - dp(64)
-        }
-        lp.height = height.coerceIn(dp(48), maxHeight)
-    }
-
-    private fun closePanels() {
-        hideScrim()
-        panels.forEach { view ->
-            if (view.visibility != View.VISIBLE) return@forEach
-            view.animate().cancel()
-            view.animate().alpha(0f).scaleX(PANEL_ENTER_SCALE).scaleY(PANEL_ENTER_SCALE)
-                .setDuration(PANEL_ANIM_MS).setInterpolator(PanelInterpolator)
-                .withEndAction { view.visibility = View.GONE }.start()
-        }
-    }
-
-    private fun pickColorFromScreen() {
-        scope.launch {
-            val screenBitmap = withOverlaysHidden {
-                withContext(Dispatchers.IO) { Exporter.captureScreenRoot() }
+    fun handleRemoteAction(intent: Intent) {
+        when (intent.action) {
+            Actions.LAUNCH -> setActive(true)
+            Actions.TOGGLE -> setActive(!active)
+            Actions.GESTURE -> {
+                val name = intent.getStringExtra(Actions.EXTRA_GESTURE) ?: return
+                val gesture = runCatching { Gesture.valueOf(name) }.getOrNull() ?: return
+                if (!active) setActive(true) else applyGesture(gesture)
             }
-            if (screenBitmap == null) {
-                Exporter.lastCaptureError?.let { Log.w(TAG, "pipette failed: $it") }
-                Toast.makeText(this@AnnotationService, "取色失败（需要 root 授权）", Toast.LENGTH_SHORT).show()
+            Actions.SET_SPLIT_MODE -> Unit
+        }
+    }
+
+    private fun refreshToolbar() {
+        toolbar.update(canvas.brush, canvas.canUndo(), canvas.canRedo())
+        orb.style = canvas.brush.style
+        orb.color = canvas.brush.color
+        saveBrush()
+    }
+
+    // ── capture / export ───────────────────────────────────────────────────
+
+    private fun withBackground(block: (Bitmap) -> Unit) {
+        scope.launch {
+            val bitmap = withContext(Dispatchers.IO) { Exporter.captureScreenRoot() }
+            if (bitmap == null) {
+                toast("截图失败：${Exporter.lastCaptureError ?: "需要 root 授权"}")
                 return@launch
             }
-            val picked = SmartInk.pickColor(screenBitmap, penTip.x.toInt(), penTip.y.toInt())
-            screenBitmap.recycle()
-            canvas.brush = canvas.brush.copy(color = picked)
-            colorPanel.color = picked
-            refreshToolbar()
-            Toast.makeText(
-                this@AnnotationService,
-                "已取色 #" + "%06X".format(picked and 0xFFFFFF),
-                Toast.LENGTH_SHORT,
-            ).show()
+            block(bitmap)
         }
     }
 
-    private fun export(pdf: Boolean) {
-        scope.launch {
-            val bitmap = composeExportBitmap()
-            val name = withContext(Dispatchers.IO) {
-                if (pdf) Exporter.savePdf(this@AnnotationService, bitmap)
-                else Exporter.savePng(this@AnnotationService, bitmap)
-            }
-            bitmap.recycle()
-            val message = if (name != null) getString(R.string.export_ok, name) else getString(R.string.export_failed)
-            Toast.makeText(this@AnnotationService, message, Toast.LENGTH_LONG).show()
-        }
-    }
-
-    private suspend fun composeExportBitmap(): Bitmap {
-        val background = withOverlaysHidden {
-            withContext(Dispatchers.IO) { Exporter.captureScreenRoot() }
-        }
-        return if (background != null) {
+    private fun exportPng() {
+        if (busyExporting) return
+        busyExporting = true
+        withBackground { background ->
             val scaled = Bitmap.createScaledBitmap(background, canvas.width, canvas.height, true)
             background.recycle()
             val result = canvas.render(background = scaled)
             scaled.recycle()
-            result
-        } else {
-            Exporter.lastCaptureError?.let { Log.w(TAG, "root screenshot unavailable: $it") }
-            canvas.render(paperColor = Color.WHITE)
+            val name = withContext(Dispatchers.IO) { Exporter.savePng(this@AnnotationService, result) }
+            result.recycle()
+            busyExporting = false
+            toast(if (name != null) getString(R.string.export_ok, name) else getString(R.string.export_failed))
         }
     }
 
-    private suspend fun <T> withOverlaysHidden(block: suspend () -> T): T {
-        val views = listOf(toolbar, orb) + panels.filter { it.visibility == View.VISIBLE }
-        // Fade window alpha instead of toggling visibility: no relayout pass,
-        // so the bar does not visibly flash when it comes back.
-        val states = views.map { it to paramsFor(it).alpha }
-        states.forEach { (view, _) ->
-            runCatching {
-                val lp = paramsFor(view)
-                lp.alpha = 0f
-                windowManager.updateViewLayout(view, lp)
-            }
+    private fun exportPdf() {
+        if (busyExporting) return
+        busyExporting = true
+        withBackground { background ->
+            val scaled = Bitmap.createScaledBitmap(background, canvas.width, canvas.height, true)
+            background.recycle()
+            val result = canvas.render(background = scaled)
+            scaled.recycle()
+            val name = withContext(Dispatchers.IO) { Exporter.savePdf(this@AnnotationService, result) }
+            result.recycle()
+            busyExporting = false
+            toast(if (name != null) getString(R.string.export_ok, name) else getString(R.string.export_failed))
         }
-        return try {
-            delay(OVERLAY_HIDE_SETTLE_MS)
-            block()
-        } finally {
-            states.forEach { (view, alpha) ->
-                runCatching {
-                    val lp = paramsFor(view)
-                    lp.alpha = alpha
-                    windowManager.updateViewLayout(view, lp)
+    }
+
+    /**
+     * 滚动批注 → 长图: scroll the page through the helper, capture each screen,
+     * stitch by overlap, and composite the ink that belongs to each frame.
+     */
+    private fun captureLongShot() {
+        if (busyExporting) return
+        val client = helper
+        if (client == null || helperReady == 0) {
+            toast("长截图需要 root 助手")
+            return
+        }
+        busyExporting = true
+        toast("正在滚动截取…")
+        scope.launch {
+            val frames = ArrayList<Bitmap>()
+            var accumulated: Bitmap? = null
+            try {
+                val first = captureComposite()
+                if (first == null) {
+                    toast("截图失败：${Exporter.lastCaptureError ?: "需要 root 授权"}")
+                    return@launch
                 }
+                frames.add(first)
+                accumulated = first.copy(Bitmap.Config.ARGB_8888, false)
+                var lastFingerDelta = 0
+                var stagnant = 0
+                for (i in 0 until MAX_LONG_SCREENS - 1) {
+                    val before = canvas.scrollOffset
+                    val swipe = "${screenWidth / 2},${(screenHeight * 0.75f).toInt()}," +
+                        "${screenWidth / 2},${(screenHeight * 0.32f).toInt()},320"
+                    client.send("${HelperProtocol.CMD_INJECT} $swipe")
+                    delay(520)
+                    val frame = captureComposite() ?: break
+                    val moved = abs(canvas.scrollOffset - before) > 4f
+                    if (!moved) {
+                        frame.recycle()
+                        stagnant++
+                        if (stagnant >= 2) break
+                        continue
+                    }
+                    val overlap = LongCapture.findOverlap(accumulated!!, frame)
+                    if (overlap < 40) {
+                        frame.recycle()
+                        break
+                    }
+                    accumulated = LongCapture.append(accumulated!!, frame, overlap)
+                }
+                val result = accumulated
+                if (result == null || result.height <= screenHeight + 4) {
+                    toast("页面没有可滚动的内容")
+                    return@launch
+                }
+                val pngName = withContext(Dispatchers.IO) { Exporter.savePng(this@AnnotationService, result) }
+                val pdfName = withContext(Dispatchers.IO) { Exporter.savePdf(this@AnnotationService, result) }
+                result.recycle()
+                toast(
+                    if (pngName != null) "长图已保存（${pngName}）+ PDF" else getString(R.string.export_failed),
+                )
+            } finally {
+                busyExporting = false
+                frames.forEach { if (!it.isRecycled) it.recycle() }
             }
         }
     }
+
+    private suspend fun captureComposite(): Bitmap? {
+        val background = withContext(Dispatchers.IO) { Exporter.captureScreenRoot() } ?: return null
+        val ink = canvas.renderInk()
+        val result = Bitmap.createBitmap(background.width, background.height, Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(result)
+        c.drawBitmap(background, 0f, 0f, null)
+        c.drawBitmap(
+            ink, null,
+            Rect(0, 0, background.width, background.height),
+            android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG),
+        )
+        background.recycle()
+        ink.recycle()
+        return result
+    }
+
+    private fun pickColorFromScreen() {
+        withBackground { bitmap ->
+            val x = penTip.x.toInt().coerceIn(0, bitmap.width - 1)
+            val y = penTip.y.toInt().coerceIn(0, bitmap.height - 1)
+            val picked = bitmap.getPixel(x, y)
+            bitmap.recycle()
+            val opaque = picked or 0xFF000000.toInt()
+            canvas.brush = canvas.brush.copy(color = opaque)
+            colorPanel.color = opaque
+            brushPanel.updateColor(opaque)
+            refreshToolbar()
+            toast("已取色 #" + "%06X".format(opaque and 0xFFFFFF))
+        }
+    }
+
+    // ── persistence ────────────────────────────────────────────────────────
 
     private fun saveBrush() {
         val b = canvas.brush
-        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+        prefs.edit()
             .putString(KEY_STYLE, b.style.name)
             .putInt(KEY_COLOR, b.color)
             .putFloat(KEY_SIZE, b.size)
             .putInt(KEY_ALPHA, b.alpha)
             .putFloat(KEY_SENSITIVITY, b.sensitivity)
-            .putFloat(KEY_TIP, b.tipSize)
+            .putInt(KEY_TIP, b.tipSize)
             .putString(KEY_ERASER_MODE, b.eraserMode.name)
             .putFloat(KEY_ERASER_SIZE, b.eraserSize)
             .apply()
     }
 
     private fun restoreBrush() {
-        val p = getSharedPreferences(PREFS, MODE_PRIVATE)
+        val p = prefs
         val style = runCatching {
             PenStyle.valueOf(p.getString(KEY_STYLE, PenStyle.INK_PEN.name) ?: PenStyle.INK_PEN.name)
         }.getOrDefault(PenStyle.INK_PEN)
@@ -737,30 +886,31 @@ class AnnotationService : Service(),
         }.getOrDefault(EraserMode.PIXEL)
         canvas.brush = BrushConfig(
             style = style,
-            color = p.getInt(KEY_COLOR, Color.parseColor("#D93025")),
+            color = p.getInt(KEY_COLOR, Color.parseColor("#E8464A")),
             size = p.getFloat(KEY_SIZE, style.defaultSize.toFloat()),
             alpha = p.getInt(KEY_ALPHA, style.defaultAlpha),
-            sensitivity = p.getFloat(KEY_SENSITIVITY, 0.5f),
-            tipSize = p.getFloat(KEY_TIP, 1f),
+            sensitivity = p.getFloat(KEY_SENSITIVITY, 0.38f),
+            tipSize = p.getInt(KEY_TIP, 2),
             eraserMode = eraserMode,
             eraserSize = p.getFloat(KEY_ERASER_SIZE, PenStyle.ERASER.defaultSize.toFloat()),
         )
     }
 
     private fun saveGestures() {
-        val editor = getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+        val editor = prefs.edit()
         gestureMap.forEach { (k, v) -> editor.putString("gesture_$k", v.name) }
         editor.apply()
     }
 
     private fun restoreGestures() {
-        val p = getSharedPreferences(PREFS, MODE_PRIVATE)
         for (gesture in Gesture.entries) {
-            val saved = p.getString("gesture_${gesture.name}", null) ?: continue
+            val saved = prefs.getString("gesture_${gesture.name}", null) ?: continue
             runCatching { GestureAction.valueOf(saved) }
                 .onSuccess { gestureMap[gesture.name] = it }
         }
     }
+
+    // ── plumbing ───────────────────────────────────────────────────────────
 
     private fun notifyModule(action: String, enabled: Boolean) {
         val intent = Intent(action)
@@ -770,21 +920,22 @@ class AnnotationService : Service(),
         runCatching { sendBroadcast(intent) }
     }
 
-    private fun params(width: Int, height: Int, flags: Int): WindowManager.LayoutParams =
+    private fun overlay(width: Int, height: Int, flags: Int): WindowManager.LayoutParams =
         WindowManager.LayoutParams(
             width, height,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             flags, PixelFormat.TRANSLUCENT,
-        ).apply { gravity = Gravity.TOP or Gravity.START }
-
-    /** Popups sit above the bar, horizontally aligned to the tapped control. */
-    private fun anchoredParams(width: Int, height: Int, flags: Int): WindowManager.LayoutParams =
-        params(width, height, flags).apply {
-            gravity = Gravity.BOTTOM or Gravity.START
-            y = dp(122)
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            layoutInDisplayCutoutMode =
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
 
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+    private fun dp(value: Int): Int = (value * density).toInt()
+
+    private fun toast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
 
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
@@ -814,15 +965,13 @@ class AnnotationService : Service(),
     override fun onDestroy() {
         super.onDestroy()
         notifyModule(Actions.SET_MODULE_ENABLED, false)
-        notifyModule(Actions.SET_SPLIT_MODE, false)
-        penEngine?.disconnect()
-        penEngine = null
-        (listOf(canvas, toolbar, palette, orb, scrim) + panels).forEach { view ->
+        helper?.stop()
+        helper = null
+        (listOf(canvas, toolbar, orb, popupHost, palette)).forEach { view ->
             if (view.isAttachedToWindow) runCatching { windowManager.removeView(view) }
         }
         if (Session.service === this) Session.service = null
         if (Session.canvas === canvas) Session.canvas = null
-        Session.rootSplitActive = false
         Session.active = false
         scope.cancel()
         isRunning = false
@@ -834,13 +983,11 @@ class AnnotationService : Service(),
         private const val TAG = "AnnotationService"
         private const val NOTIFICATION_ID = 42
         private const val CHANNEL_ID = "global_annotate"
-        private const val OVERLAY_HIDE_SETTLE_MS = 160L
-        private const val BAR_WIDTH_DP = 620
-        private const val PANEL_ANIM_MS = 150L
-        private const val PANEL_ENTER_SCALE = 0.96f
-        private val PanelInterpolator = PathInterpolator(0f, 0f, 0.2f, 1f)
+        private const val BAR_HEIGHT_DP = 102
+        private const val MAX_LONG_SCREENS = 12
         private const val MATCH = WindowManager.LayoutParams.MATCH_PARENT
         private const val WRAP = WindowManager.LayoutParams.WRAP_CONTENT
+        private val PANEL_EASE = PathInterpolator(0f, 0f, 0.2f, 1f)
         private const val PREFS = "global_annotate_brush"
         private const val KEY_BAR_X = "bar_x"
         private const val KEY_BAR_Y = "bar_y"

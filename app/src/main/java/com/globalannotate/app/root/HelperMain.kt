@@ -306,6 +306,14 @@ object HelperMain {
                     runCatching { applyStylusWindow() }.onFailure { log("apply failed: $it") }
                 }
                 HelperProtocol.CMD_OPACITY -> setOpacityLifted(arg == "1")
+                HelperProtocol.CMD_INJECT -> {
+                    val n = arg.split(',').mapNotNull { it.trim().toIntOrNull() }
+                    if (n.size == 5) {
+                        Thread({
+                            shell("input swipe ${n[0]} ${n[1]} ${n[2]} ${n[3]} ${n[4]}")
+                        }, "ga-inject").start()
+                    }
+                }
             }
         }
         // stdin closed: the app is gone.

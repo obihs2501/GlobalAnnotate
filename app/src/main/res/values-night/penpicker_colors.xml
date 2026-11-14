@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Copied verbatim from Mi Canvas res/values-night/colors.xml. -->
+<!-- Tokens copied from Mi Canvas 4.1.8 (com.miui.creation). -->
 <resources>
+    <color name="cp_top_bar_bg">#33ffffff</color>
+    <color name="creation_seekbar_border">#0dffffff</color>
+    <color name="pen_menu_background_color">#212121</color>
+    <color name="pen_menu_eraser_button_unselected_color">#24ffffff</color>
+    <color name="pen_menu_pencil_size_seekbar_bg_color">#24ffffff</color>
+    <color name="pen_menu_slider_stroke_color">#33ffffff</color>
     <color name="penpicker_background_color">#242424</color>
     <color name="penpicker_circle_button_background_color">#1effffff</color>
     <color name="penpicker_colorpicker_text_title">#ffffffff</color>
@@ -8,6 +14,5 @@
     <color name="penpicker_eraser_hint_text_color">#7fffffff</color>
     <color name="penpicker_more_item_text_color">#ccffffff</color>
     <color name="penpicker_pen_set_text">#ccffffff</color>
-    <color name="creation_more_popwindow_line">#1affffff</color>
-    <color name="creation_split_line_color">#3d3d3d</color>
+    <color name="pk_property_seekbar_bg">#24ffffff</color>
 </resources>

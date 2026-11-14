@@ -17,4 +17,9 @@
     <color name="ga_ripple">#1F000000</color>
     <color name="ga_text_hint">#66000000</color>
     <color name="ga_swatch_ring">#1F1F1F</color>
+    <!-- Mi Canvas bar / menu tokens, measured from the reference. -->
+    <color name="ga_button_bg">#F0F0F0</color>
+    <color name="ga_icon">#000000</color>
+    <color name="ga_handle">#E5E5E5</color>
+    <color name="ga_panel_scrim">#33000000</color>
 </resources>

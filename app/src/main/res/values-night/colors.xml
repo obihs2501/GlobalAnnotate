@@ -16,4 +16,8 @@
     <color name="ga_ripple">#1FFFFFFF</color>
     <color name="ga_text_hint">#7FFFFFFF</color>
     <color name="ga_swatch_ring">#FFFFFF</color>
+    <color name="ga_button_bg">#3E3E3E</color>
+    <color name="ga_icon">#F5F5F5</color>
+    <color name="ga_handle">#505050</color>
+    <color name="ga_panel_scrim">#66000000</color>
 </resources>

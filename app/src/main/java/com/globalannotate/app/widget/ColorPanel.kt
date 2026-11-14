@@ -2,13 +2,14 @@ package com.globalannotate.app.widget
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.content.ContextCompat
 import com.globalannotate.app.R
 import com.globalannotate.app.model.BrushConfig
 import com.globalannotate.app.penpicker.ColorPickPanelView
@@ -20,158 +21,199 @@ import com.globalannotate.app.penpicker.FilterSortView
 import com.globalannotate.app.penpicker.PickerStrawTool
 
 /**
- * Colour popup. Every dimension comes from the ported Mi Canvas layouts:
- * `penpicker_popup_color_picker` (360x571, title + straw, FilterSortView tabs,
- * pager, 72dp display block and two recent-colour rows), plus the grid and
- * slider pages.
+ * Colour popup, Mi Canvas `penpicker_popup_color_picker` verbatim: 360dp wide,
+ * 36dp radius, title + eyedropper, a two-tab pill, the 13x9 swatch board,
+ * opacity rail, colour block and the four recent colours. The slider tab is the
+ * original hue / saturation / lightness / opacity page.
  */
 class ColorPanel(context: Context, private val listener: Listener) : LinearLayout(context) {
 
     interface Listener {
         fun onColor(color: Int)
-        fun onOpacity(alpha: Int)
+        fun onAlpha(alpha: Int)
         fun onPipette()
-        fun onClose()
     }
 
     private val density = resources.displayMetrics.density
-    private val root: View
     private val tabs: FilterSortView
-    private val pager: FrameLayout
     private val gridPage: View
     private val sliderPage: View
-    private val grid: ColorPickPanelView
-    private val display: ColorSwatchBlock
+    private val board: ColorPickPanelView
     private val gridAlpha: ColorPickerAlphaView
-    private val hueBar: ColorPickerHueView
-    private val satBar: ColorPickerSaturationView
-    private val lightBar: ColorPickerLightnessView
+    private val gridAlphaValue: TextView
+    private val hue: ColorPickerHueView
+    private val saturation: ColorPickerSaturationView
+    private val lightness: ColorPickerLightnessView
     private val sliderAlpha: ColorPickerAlphaView
-    private val alphaLabel: TextView
-    private val swatchRows = mutableListOf<LinearLayout>()
-    private val recentSwatches = mutableListOf<SwatchView>()
+    private val sliderAlphaValue: TextView
+    private val block: ColorSwatchBlock
+    private val recent = mutableListOf<Swatch>()
 
-    private var hsv = floatArrayOf(0f, 0.75f, 0.85f)
-    private var alpha = 255
+    private var alpha: Int = 255
+    private val hsv = floatArrayOf(352f, 0.70f, 1f)
 
-    var color: Int
-        get() = Color.HSVToColor(alpha, hsv)
+    var color: Int = Color.parseColor("#E8464A")
         set(value) {
-            val a = Color.alpha(value)
-            if (a != 0) alpha = a
+            field = value
             Color.colorToHSV(value, hsv)
-            syncFromState()
-        }
-
-    var opacity: Int
-        get() = alpha
-        set(value) {
-            alpha = value.coerceIn(0, 255)
-            syncFromState()
+            syncViews(fromGrid = true)
         }
 
     init {
         orientation = VERTICAL
         LayoutInflater.from(context).inflate(R.layout.penpicker_popup_color_picker, this, true)
-        root = findViewById(R.id.ll_root)
         tabs = findViewById(R.id.penpicker_popup_tab)
-        pager = findViewById(R.id.penpicker_custom_view_pager)
-        display = findViewById(R.id.penpicker_display_block)
+        val pager = findViewById<FrameLayout>(R.id.penpicker_custom_view_pager)
+        block = findViewById(R.id.penpicker_display_block)
 
-        gridPage = LayoutInflater.from(context)
-            .inflate(R.layout.penpicker_popup_color_picker_grid, pager, false)
-        sliderPage = LayoutInflater.from(context)
-            .inflate(R.layout.penpicker_popup_color_picker_slider, pager, false)
+        gridPage = LayoutInflater.from(context).inflate(R.layout.penpicker_popup_color_picker_grid, pager, false)
+        sliderPage = LayoutInflater.from(context).inflate(R.layout.penpicker_popup_color_picker_slider, pager, false)
         pager.addView(gridPage)
         pager.addView(sliderPage)
-        sliderPage.visibility = View.GONE
 
-        grid = gridPage.findViewById(R.id.penpicker_color_picker_panel)
+        board = gridPage.findViewById(R.id.penpicker_color_picker_panel)
         gridAlpha = gridPage.findViewById(R.id.grid_alpha_seek_bar)
-        alphaLabel = gridPage.findViewById(R.id.grid_alpha_progress)
-        hueBar = sliderPage.findViewById(R.id.slider_hue)
-        satBar = sliderPage.findViewById(R.id.slider_saturation)
-        lightBar = sliderPage.findViewById(R.id.slider_lightness)
+        gridAlphaValue = gridPage.findViewById(R.id.grid_alpha_progress)
+
+        hue = sliderPage.findViewById(R.id.slider_hue)
+        saturation = sliderPage.findViewById(R.id.slider_saturation)
+        lightness = sliderPage.findViewById(R.id.slider_lightness)
         sliderAlpha = sliderPage.findViewById(R.id.slider_alpha_seek_bar)
+        sliderAlphaValue = sliderPage.findViewById(R.id.slider_alpha_progress)
+
+        tabs.onTabSelected = { index -> showPage(index) }
+        tabs.selectedIndex = 0
 
         findViewById<PickerStrawTool>(R.id.penpicker_btn_straw).onTap = { listener.onPipette() }
-        findViewById<TextView>(R.id.tv_title)
-
-        tabs.onTabSelected = { index ->
-            gridPage.visibility = if (index == 0) View.VISIBLE else View.GONE
-            sliderPage.visibility = if (index == 1) View.VISIBLE else View.GONE
-        }
-
-        grid.onColorPicked = { picked ->
+        board.onColorPicked = { picked ->
             Color.colorToHSV(picked, hsv)
-            emitColor()
+            applyColor(picked)
         }
-        gridAlpha.onProgress = { p -> alpha = (p * 255).toInt(); emitColor(); listener.onOpacity(alpha) }
-        hueBar.onProgress = { p -> hsv[0] = p * 360f; emitColor() }
-        satBar.onProgress = { p -> hsv[1] = p; emitColor() }
-        lightBar.onProgress = { p -> hsv[2] = p; emitColor() }
-        sliderAlpha.onProgress = { p -> alpha = (p * 255).toInt(); emitColor(); listener.onOpacity(alpha) }
-
-        bindRecentColors()
-        syncFromState()
-    }
-
-    private fun bindRecentColors() {
-        val rows = listOf(
-            findViewById<LinearLayout>(R.id.penpicker_recent_color_list_1),
-            findViewById<LinearLayout>(R.id.penpicker_recent_color_list_2),
-        )
-        val recent = BrushConfig.PALETTE.take(8)
-        rows.forEachIndexed { rowIndex, row ->
-            swatchRows.add(row)
-            for (i in 0..3) {
-                val c = recent[rowIndex * 4 + i]
-                val swatch = SwatchView(context, c).apply {
-                    layoutParams = LinearLayout.LayoutParams(dp(36), dp(36)).apply {
-                        if (i > 0) marginStart = dp(12)
-                    }
-                    setOnClickListener {
-                        Color.colorToHSV(c, hsv)
-                        emitColor()
-                    }
-                }
-                recentSwatches.add(swatch)
-                row.addView(swatch)
-            }
+        gridAlpha.onProgress = { p ->
+            alpha = (p * 255).toInt().coerceIn(0, 255)
+            gridAlphaValue.text = "${(p * 100).toInt()}%"
+            listener.onAlpha(alpha)
         }
+        gridAlpha.onCommit = { p ->
+            alpha = (p * 255).toInt().coerceIn(0, 255)
+            listener.onAlpha(alpha)
+        }
+
+        hue.onProgress = { p ->
+            hsv[0] = p * 360f
+            applyHsv()
+        }
+        saturation.onProgress = { p ->
+            hsv[1] = p
+            applyHsv()
+        }
+        lightness.onProgress = { p ->
+            hsv[2] = p
+            applyHsv()
+        }
+        sliderAlpha.onProgress = { p ->
+            alpha = (p * 255).toInt().coerceIn(0, 255)
+            sliderAlphaValue.text = "${(p * 100).toInt()}%"
+            listener.onAlpha(alpha)
+        }
+        sliderAlpha.onCommit = { p ->
+            alpha = (p * 255).toInt().coerceIn(0, 255)
+            listener.onAlpha(alpha)
+        }
+
+        buildRecent()
+        showPage(0)
     }
 
-    private fun emitColor() {
-        val argb = Color.HSVToColor(alpha, hsv)
-        syncViews(argb)
-        listener.onColor(argb)
+    private fun showPage(index: Int) {
+        gridPage.visibility = if (index == 0) View.VISIBLE else View.GONE
+        sliderPage.visibility = if (index == 1) View.VISIBLE else View.GONE
     }
 
-    private fun syncFromState() {
-        syncViews(Color.HSVToColor(alpha, hsv))
+    private fun applyHsv() {
+        val c = Color.HSVToColor(hsv)
+        applyColor(c)
     }
 
-    private fun syncViews(argb: Int) {
-        display.color = argb
-        grid.selectedColor = Color.rgb(Color.red(argb), Color.green(argb), Color.blue(argb))
+    private fun applyColor(c: Int) {
+        // Keep the colour opaque inside the picker; opacity is its own rail.
+        color = c or 0xFF000000.toInt()
+        Color.colorToHSV(color, hsv)
+        syncViews(fromGrid = false)
+        listener.onColor(color)
+    }
+
+    private fun syncViews(fromGrid: Boolean) {
+        board.setColor(color)
+        block.color = Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
+        hue.baseColor = color
+        saturation.baseColor = color
+        lightness.baseColor = color
+        gridAlpha.baseColor = color
+        sliderAlpha.baseColor = color
+        if (fromGrid) {
+            hue.progress = hsv[0] / 360f
+            saturation.progress = hsv[1]
+            lightness.progress = hsv[2]
+        }
         gridAlpha.progress = alpha / 255f
-        gridAlpha.baseColor = Color.rgb(Color.red(argb), Color.green(argb), Color.blue(argb))
         sliderAlpha.progress = alpha / 255f
-        sliderAlpha.baseColor = Color.rgb(Color.red(argb), Color.green(argb), Color.blue(argb))
-        hueBar.progress = hsv[0] / 360f
-        satBar.baseColor = Color.HSVToColor(floatArrayOf(hsv[0], 1f, hsv[2]))
-        satBar.progress = hsv[1]
-        lightBar.baseColor = Color.HSVToColor(floatArrayOf(hsv[0], hsv[1], 1f))
-        lightBar.progress = hsv[2]
-        alphaLabel.text = "${(alpha * 100 / 255)}%"
-        val rgb = Color.rgb(Color.red(argb), Color.green(argb), Color.blue(argb))
-        swatchRows.forEach { row ->
-            for (i in 0 until row.childCount) {
-                (row.getChildAt(i) as? SwatchView)?.checked = false
-            }
-        }
-        recentSwatches.forEach { it.checked = it.color == rgb }
+        gridAlphaValue.text = "${alpha * 100 / 255}%"
+        sliderAlphaValue.text = "${alpha * 100 / 255}%"
+        recent.forEach { it.checked = sameRgb(it.color, color) }
     }
 
-    private fun dp(value: Int): Int = (value * density).toInt()
+    private fun sameRgb(a: Int, b: Int): Boolean =
+        (a and 0xFFFFFF) == (b and 0xFFFFFF)
+
+    private fun buildRecent() {
+        val row1 = findViewById<LinearLayout>(R.id.penpicker_recent_color_list_1)
+        for (c in BrushConfig.RECENT_COLORS) {
+            val sw = Swatch(c)
+            sw.setOnClickListener {
+                color = c
+                applyColor(c)
+            }
+            recent.add(sw)
+            row1.addView(sw, LinearLayout.LayoutParams(dp(26), dp(26)).apply { marginEnd = dp(8) })
+        }
+        findViewById<LinearLayout>(R.id.penpicker_recent_color_list_2).visibility = View.GONE
+    }
+
+    private fun dp(v: Int): Int = (v * density).toInt()
+
+    fun setAlphaValue(a: Int) {
+        alpha = a
+        syncViews(fromGrid = false)
+    }
+
+    private inner class Swatch(val color: Int) : View(context) {
+        var checked = false
+            set(value) { field = value; invalidate() }
+        private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+
+        init {
+            isClickable = true
+            setOnClickListener { }
+        }
+
+        override fun onDraw(canvas: android.graphics.Canvas) {
+            val cx = width / 2f
+            val cy = height / 2f
+            val r = minOf(width, height) / 2f - 1f
+            paint.style = android.graphics.Paint.Style.FILL
+            paint.color = color
+            canvas.drawCircle(cx, cy, r, paint)
+            paint.style = android.graphics.Paint.Style.STROKE
+            paint.strokeWidth = 2f * density
+            paint.color = android.graphics.Color.parseColor("#E8464A")
+            if (checked) {
+                canvas.drawCircle(cx, cy, r - 1.5f * density, paint)
+            } else {
+                paint.strokeWidth = 1f * density
+                paint.color = android.graphics.Color.argb(60, 0, 0, 0)
+                canvas.drawCircle(cx, cy, r, paint)
+            }
+        }
+    }
 }
