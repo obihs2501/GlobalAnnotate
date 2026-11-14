@@ -870,17 +870,16 @@ class AnnotationService : Service(),
             // Probe: open the colour panel the same way a tap on the bar does.
             "com.globalannotate.action.MCPOPUP" -> {
                 if (!active) setActive(true)
-                expandBar()
-                showColorPanel(dp(300))
-                // Re-enable the panel in screenshots so the probe can be checked.
-                val unexcluded = Hidden.setSkipScreenshot(popupHost, false)
-                val at = IntArray(2)
-                colorPanel.getLocationOnScreen(at)
-                Log.i(TAG, "MCPOPUP unexclude=$unexcluded alpha=${colorPanel.alpha} at=${at[0]},${at[1]}")
-                colorPanel.postDelayed({
-                    Log.i(TAG, "MCPOPUP panel=${colorPanel.width}x${colorPanel.height}")
-                    dumpTree(colorPanel, "MCPOPUP")
-                }, 400)
+                // Skip the enter animation and the capture exclusion so the
+                // screenshot shows the panel exactly as Mi Canvas draws it.
+                colorPanel.alpha = 1f
+                colorPanel.layoutParams = FrameLayout.LayoutParams(dp(338), dp(536)).apply {
+                    leftMargin = dp(40)
+                    topMargin = dp(60)
+                }
+                colorPanel.visibility = View.VISIBLE
+                popupHost.visibility = View.VISIBLE
+                colorPanel.postDelayed({ dumpTree(colorPanel, "MCPOPUP") }, 400)
             }
         }
     }
