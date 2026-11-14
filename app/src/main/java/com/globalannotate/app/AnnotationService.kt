@@ -493,7 +493,9 @@ class AnnotationService : Service(),
         // Rotate through the bar's quick colours AND the panel's palette so the
         // gesture keeps producing visibly different ink. Keep every open panel
         // in sync, otherwise the palette looks stuck.
-        val colors = BrushConfig.QUICK_COLORS + BrushConfig.RECENT_COLORS
+        // De-duplicate: a colour that appears in both lists would otherwise restart
+        // the cycle at its first copy and the gesture would look stuck.
+        val colors = (BrushConfig.QUICK_COLORS + BrushConfig.RECENT_COLORS).distinct()
         val index = colors.indexOf(canvas.brush.color)
         val next = colors[(index + 1).mod(colors.size)]
         canvas.brush = canvas.brush.copy(color = next)
@@ -716,6 +718,7 @@ class AnnotationService : Service(),
                 b.copy(size = value.coerceIn(b.style.minSize.toFloat(), b.style.maxSize.toFloat()))
             BrushPanel.ParamKind.SENSITIVITY -> b.copy(sensitivity = (value / 100f).coerceIn(0f, 1f))
             BrushPanel.ParamKind.TIP -> b.copy(tipSize = value.toInt().coerceIn(1, 4))
+            // Mi Canvas' minAlphaValue is 3, so the ink can never be fully invisible.
             BrushPanel.ParamKind.ALPHA -> b.copy(alpha = value.toInt().coerceIn(3, 255))
         }
         refreshToolbar()

@@ -170,7 +170,7 @@ class BrushPanel(context: Context, private val listener: Listener) : LinearLayou
         }
         addRow(
             ParamKind.ALPHA, "不透明度", "${b.alpha * 100 / 255}%",
-            0, 255, b.alpha, alpha = true,
+            3, 255, b.alpha.coerceIn(3, 255), alpha = true,
         ) { "${(it * 100 / 255).toInt()}%" }
     }
 
