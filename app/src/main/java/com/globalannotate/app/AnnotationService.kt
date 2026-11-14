@@ -537,11 +537,11 @@ class AnnotationService : Service(),
         }
         if (style.isEraser) {
             eraserPanel.brush = canvas.brush
-            showPanel(eraserPanel, anchorX, dp(270), 0)
+            showPanel(eraserPanel, anchorX, dp(288), 0)
         } else {
             brushPanel.brush = canvas.brush
             brushPanel.updateColor(canvas.brush.color)
-            showPanel(brushPanel, anchorX, dp(270), 0)
+            showPanel(brushPanel, anchorX, dp(288), 0)
         }
     }
 
@@ -601,9 +601,11 @@ class AnnotationService : Service(),
         // Deterministic order: pose the panel, make the host visible, let one
         // frame lay out, then play the enter animation. Starting the animator
         // before the first layout used to leave the panel blank for a frame.
+        // Mi Canvas ArrowPopupView: scale 0.6 -> 1.0 over 280ms with
+        // Decelerate(1.5), alpha 0 -> 1 over 100ms.
         panel.alpha = 0f
-        panel.scaleX = 0.96f
-        panel.scaleY = 0.96f
+        panel.scaleX = 0.6f
+        panel.scaleY = 0.6f
         panel.visibility = View.VISIBLE
         panel.invalidate()
         openPanel = panel
@@ -611,8 +613,11 @@ class AnnotationService : Service(),
         popupHost.invalidate()
         panel.post {
             if (openPanel === panel) {
-                panel.animate().alpha(1f).scaleX(1f).scaleY(1f)
-                    .setDuration(150).setInterpolator(PANEL_EASE).start()
+                panel.animate().scaleX(1f).scaleY(1f)
+                    .setDuration(280)
+                    .setInterpolator(android.view.animation.DecelerateInterpolator(1.5f))
+                    .start()
+                panel.animate().alpha(1f).setDuration(100).start()
             }
         }
         updateExclusion()
@@ -629,12 +634,15 @@ class AnnotationService : Service(),
         val panel = openPanel ?: return
         openPanel = null
         if (animate) {
-            panel.animate().alpha(0f).scaleX(0.96f).scaleY(0.96f)
-                .setDuration(120).setInterpolator(PANEL_EASE)
+            // Exit: scale 1.0 -> 0.6 and alpha -> 0, both 150ms, Accelerate(2).
+            panel.animate().scaleX(0.6f).scaleY(0.6f)
+                .setDuration(150)
+                .setInterpolator(android.view.animation.AccelerateInterpolator(2f))
                 .withEndAction {
                     panel.visibility = View.GONE
                     popupHost.visibility = View.GONE
                 }.start()
+            panel.animate().alpha(0f).setDuration(150).start()
         } else {
             panel.animate().cancel()
             panel.visibility = View.GONE
@@ -1023,7 +1031,7 @@ class AnnotationService : Service(),
         private const val TAG = "AnnotationService"
         private const val NOTIFICATION_ID = 42
         private const val CHANNEL_ID = "global_annotate"
-        private const val BAR_HEIGHT_DP = 102
+        private const val BAR_HEIGHT_DP = 120
         private const val MAX_LONG_SCREENS = 12
         private const val MATCH = WindowManager.LayoutParams.MATCH_PARENT
         private const val WRAP = WindowManager.LayoutParams.WRAP_CONTENT

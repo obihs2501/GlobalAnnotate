@@ -97,6 +97,7 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
                 isClickable = true
                 foreground = Ripple.rounded(context, dp(12).toFloat())
                 setOnClickListener { listener.onTool(style, centerOnScreen(this)) }
+                translationY = OUTWARD_DP * density
                 layoutParams = LinearLayout.LayoutParams(
                     dp(if (style == PenStyle.ERASER) LARGE_WIDTH_DP else PEN_WIDTH_DP),
                     dp(PEN_HEIGHT_DP),
@@ -148,7 +149,7 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         }
         row.addView(more)
 
-        addView(row, LayoutParams(MATCH, MATCH))
+        addView(row, LayoutParams(MATCH, dp(CAPSULE_DP)))
     }
 
     // ── drawing ────────────────────────────────────────────────────────────
@@ -167,9 +168,10 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
     private fun drawCapsule(canvas: Canvas) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         paint.color = ContextCompat.getColor(context, R.color.penpicker_background_color)
+        val capsule = dp(CAPSULE_DP).toFloat()
         canvas.drawRoundRect(
-            RectF(0f, 0f, width.toFloat(), height.toFloat()),
-            height / 2f, height / 2f, paint,
+            RectF(0f, 0f, width.toFloat(), capsule),
+            capsule / 2f, capsule / 2f, paint,
         )
     }
 
@@ -196,9 +198,9 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
             glyph.color = brush.color
             glyph.checked = style == selected
             if (style == selected && lastSelected != selected) {
-                stretch(glyph, selected = true)
+                settle(glyph, selected = true)
             } else if (style != selected && lastSelected == style) {
-                stretch(glyph, selected = false)
+                settle(glyph, selected = false)
             }
         }
         lastSelected = selected
@@ -212,34 +214,21 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
      * the capsule floor. Neighbours never move and the row never re-lays out,
      * so the brush can only grow upwards ("only shrinks forward").
      */
-    private fun stretch(glyph: View, selected: Boolean) {
+    /**
+     * Mi Canvas' actual selection motion (`II11I` in the pen bar): every tool
+     * rests 18dp outside the capsule; the selected tool alone slides back to
+     * its seat with a spring. No scaling, no reflow, so nothing moves
+     * sideways — the chosen brush simply retracts inward ("only shrinks
+     * forward") and the others stay put.
+     */
+    private fun settle(glyph: View, selected: Boolean) {
         glyph.animate().cancel()
-        if (glyph.height == 0) {
-            glyph.post { stretch(glyph, selected) }
-            return
-        }
-        // Measured on Mi Canvas' own bar: selection only elongates the tool
-        // along its axis (77.1 -> 93.8dp), anchored at the capsule floor, with
-        // the thickness untouched. Neighbours never move.
-        glyph.pivotX = glyph.width / 2f
-        glyph.pivotY = glyph.height.toFloat()
-        if (selected) {
-            glyph.translationZ = 3f * density
-            glyph.animate()
-                .scaleX(1f)
-                .scaleY(SELECTED_SCALE_Y)
-                .setDuration(200)
-                .setInterpolator(android.view.animation.PathInterpolator(0.2f, 0f, 0f, 1f))
-                .start()
-        } else {
-            glyph.animate()
-                .scaleX(1f)
-                .scaleY(1f)
-                .setDuration(150)
-                .setInterpolator(android.view.animation.PathInterpolator(0.3f, 0f, 1f, 1f))
-                .withEndAction { glyph.translationZ = 0f }
-                .start()
-        }
+        val target = if (selected) 0f else OUTWARD_DP * density
+        glyph.animate()
+            .translationY(target)
+            .setDuration(300)
+            .setInterpolator(android.view.animation.OvershootInterpolator(0.35f))
+            .start()
     }
 
     fun contentWidthPx(): Int {
@@ -385,8 +374,10 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         const val PEN_HEIGHT_DP = 77
         /** Eraser / ruler are thicker (63.6dp) but the same 77.1dp long. */
         const val LARGE_WIDTH_DP = 64
-        /** Selected tool grows 16.7dp along its length: 77.1 -> 93.8dp. */
-        const val SELECTED_SCALE_Y = 93.8f / 77.1f
+        /** Every tool rests this far outside the capsule (Mi Canvas: 18dp). */
+        const val OUTWARD_DP = 18
+        /** Window = capsule + the outward overhang. */
+        const val WINDOW_HEIGHT_DP = 102 + OUTWARD_DP
         const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
     }
 }
