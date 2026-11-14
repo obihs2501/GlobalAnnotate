@@ -85,12 +85,12 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
 
         undo = circle(R.drawable.picker_undo) { listener.onUndo() }.apply {
             layoutParams = LinearLayout.LayoutParams(dp(42), dp(42)).apply {
-                bottomMargin = dp((CAPSULE_DP - 42) / 2 + (WINDOW_HEIGHT_DP - CAPSULE_DP - OUTWARD_DP))
+                bottomMargin = dp((CAPSULE_DP - 42) / 2)
             }
         }
         redo = circle(R.drawable.picker_redo) { listener.onRedo() }.apply {
             layoutParams = LinearLayout.LayoutParams(dp(42), dp(42)).apply {
-                bottomMargin = dp((CAPSULE_DP - 42) / 2 + (WINDOW_HEIGHT_DP - CAPSULE_DP - OUTWARD_DP))
+                bottomMargin = dp((CAPSULE_DP - 42) / 2)
             }
         }
         row.addView(undo)
@@ -105,7 +105,7 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
                 artLengthDp = PEN_HEIGHT_DP.toFloat()
                 layoutParams = LinearLayout.LayoutParams(
                     dp(if (style == PenStyle.ERASER) LARGE_WIDTH_DP else PEN_WIDTH_DP),
-                    dp(PEN_HEIGHT_DP + OUTWARD_DP + 4),
+                    dp(WINDOW_HEIGHT_DP),
                 ).apply {
                     if (style == PenStyle.toolbarOrder.first()) marginStart = dp(20)
                 }
@@ -118,7 +118,7 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(dp(82), dp(82)).apply {
                 marginStart = dp(8)
-                bottomMargin = dp((CAPSULE_DP - 82) / 2 + (WINDOW_HEIGHT_DP - CAPSULE_DP - OUTWARD_DP))
+                bottomMargin = dp((CAPSULE_DP - 82) / 2)
             }
         }
         for (r in 0..1) {
@@ -151,7 +151,7 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         more = circle(R.drawable.picker_more) { listener.onOpenMore(centerOnScreen(this)) }.apply {
             layoutParams = LinearLayout.LayoutParams(dp(42), dp(42)).apply {
                 marginStart = dp(0)
-                bottomMargin = dp((CAPSULE_DP - 42) / 2 + (WINDOW_HEIGHT_DP - CAPSULE_DP - OUTWARD_DP))
+                bottomMargin = dp((CAPSULE_DP - 42) / 2)
             }
         }
         row.addView(more)
@@ -177,9 +177,10 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         paint.color = ContextCompat.getColor(context, R.color.penpicker_background_color)
         val capsule = dp(CAPSULE_DP).toFloat()
         // The pens' resting position is the window top, so the capsule starts one
-        // outward step lower: their tips poke out above it and their bases float
-        // above its bottom edge, exactly like the reference bar.
-        val seat = dp(OUTWARD_DP).toFloat()
+        // The capsule is the window: the tools' seats are bottom-aligned with it,
+        // so a tool that slides in hides its tail below the window edge and the
+        // selected one slides back up without ever looking shorter.
+        val seat = 0f
         canvas.drawRoundRect(
             RectF(0f, seat, width.toFloat(), seat + capsule),
             capsule / 2f, capsule / 2f, paint,
@@ -192,7 +193,7 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         val w = 30f * density
         val h = 3.6f * density
         val left = (width - w) / 2f
-        val top = dp(OUTWARD_DP) + 4f * density
+        val top = 4f * density
         canvas.drawRoundRect(RectF(left, top, left + w, top + h), h / 2f, h / 2f, paint)
     }
 
@@ -234,11 +235,12 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
      */
     private fun settle(glyph: BrushGlyph, selected: Boolean) {
         val from = glyph.artOffsetDp
-        // Offset 0 is the *out* position: the capsule starts OUTWARD_DP below the
-        // window top, so a pen drawn from the top edge pokes out by that much and
-        // its base floats the same distance above the capsule's bottom — exactly
-        // how Mi Canvas looks. Sliding to OUTWARD_DP seats it inside the capsule.
-        val to = if (selected) OUTWARD_DP.toFloat() else 0f
+        // Offset 0 is the *out* position: the pen's tip reaches the capsule top and
+        // its base sits on the capsule floor. Sliding to OUTWARD_DP seats it, which
+        // pushes its tail OUTWARD_DP below the window edge, where it is hidden —
+        // exactly the length the outward slide gives back, so the pen never looks
+        // shortened.
+        val to = if (selected) 0f else OUTWARD_DP.toFloat()
         val animator = android.animation.ValueAnimator.ofFloat(from, to)
         animator.duration = 300
         animator.interpolator = android.view.animation.OvershootInterpolator(0.35f)
@@ -412,10 +414,13 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         const val PEN_HEIGHT_DP = 124
         /** Every tool rests this far outside the capsule (Mi Canvas: 18dp). */
         const val OUTWARD_DP = 18
-        /** Capsule covers the full 124dp tool row; only the 18dp travel pokes out. */
+        /** The capsule is the visible window; it clips the seated tools' tails. */
         const val CAPSULE_DP = 124
-        /** Window = tool row (124dp) + outward travel (18dp). */
-        const val WINDOW_HEIGHT_DP = PEN_HEIGHT_DP + OUTWARD_DP + 4
+        /**
+         * Window = capsule. A seated tool is pushed OUTWARD_DP down, so its tail is
+         * cut off at the window edge instead of visibly shortening the artwork.
+         */
+        const val WINDOW_HEIGHT_DP = CAPSULE_DP
         const val BAR_HEIGHT_DP = WINDOW_HEIGHT_DP
         const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
     }

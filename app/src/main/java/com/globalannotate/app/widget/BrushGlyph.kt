@@ -30,10 +30,10 @@ class BrushGlyph @JvmOverloads constructor(
         set(value) { field = value; invalidate() }
 
     /**
-     * How far the pen pokes out of the capsule, in dp, drawn inside the view's
-     * own canvas. Mi Canvas moves the whole slot with a spring; animating a
-     * draw offset instead keeps the tail inside the window, so it can never be
-     * clipped at the parent edge.
+     * Seat depth in dp, drawn inside the view's own canvas: 0 is the out position
+     * (tip at the capsule top, base on the capsule floor), OUTWARD_DP is seated.
+     * A seated pen's tail runs past the window edge and is clipped there, so the
+     * outward slide gives back exactly the length it hides.
      */
     var artOffsetDp: Float = 18f
         set(value) { field = value; invalidate() }

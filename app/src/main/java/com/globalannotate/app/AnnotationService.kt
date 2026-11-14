@@ -712,6 +712,23 @@ class AnnotationService : Service(),
         if (popupHost.indexOfChild(anchor) < 0) {
             popupHost.addView(anchor, FrameLayout.LayoutParams(dp(48), dp(ToolbarView.PEN_HEIGHT_DP)))
         }
+        // Both windows are the same overlay type with TOP|START gravity, so the
+        // toolbar window's own origin maps its screen rect into this window. The
+        // arrow's onLayout dereferences its anchor, so bind it before the host
+        // becomes visible and lays out — otherwise the first traversal crashes.
+        val toolLoc = IntArray(2)
+        val toolWin = IntArray(2)
+        toolbar.getLocationOnScreen(toolLoc)
+        toolbar.getLocationInWindow(toolWin)
+        val lp = anchor.layoutParams as FrameLayout.LayoutParams
+        toolbar.selectedToolBounds()?.let { tool ->
+            lp.width = tool.width()
+            lp.height = tool.height()
+            lp.leftMargin = tool.left - (toolLoc[0] - toolWin[0])
+            lp.topMargin = tool.top - (toolLoc[1] - toolWin[1])
+            anchor.layoutParams = lp
+        }
+        shell.prepare(anchor, dp(360), dp(470))
         if (popupHost.indexOfChild(shell.root) < 0) {
             popupHost.addView(shell.root, FrameLayout.LayoutParams(MATCH, MATCH))
         }
@@ -724,22 +741,24 @@ class AnnotationService : Service(),
         popupHost.invalidate()
         excludeFromCapture(popupHost)
         updateExclusionAfterLayout()
+        // Once the host is mapped, re-anchor against this window's real origin and
+        // start the original enter animation.
         popupHost.post {
             if (epoch != panelEpoch || openShell !== shell) return@post
             val host = IntArray(2)
             popupHost.getLocationOnScreen(host)
-            val tool = toolbar.selectedToolBounds()
-            val lp = anchor.layoutParams as FrameLayout.LayoutParams
-            if (tool != null) {
-                lp.width = tool.width()
-                lp.height = tool.height()
-                lp.leftMargin = tool.left - host[0]
-                lp.topMargin = tool.top - host[1]
+            val params = anchor.layoutParams as FrameLayout.LayoutParams
+            toolbar.selectedToolBounds()?.let { tool ->
+                params.width = tool.width()
+                params.height = tool.height()
+                params.leftMargin = tool.left - host[0]
+                params.topMargin = tool.top - host[1]
+                anchor.layoutParams = params
+                anchor.requestLayout()
             }
-            anchor.layoutParams = lp
             shell.prepare(anchor, dp(360), dp(470))
             // prepare() clears the animation state, so hide the root again until
-            // the original enter animation takes over.
+            // the original enter takes over.
             shell.root.alpha = 0f
             popupHost.post {
                 if (epoch != panelEpoch || openShell !== shell) return@post
