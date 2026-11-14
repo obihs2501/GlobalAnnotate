@@ -23,7 +23,7 @@ object McBridge {
     private val coloursCache = HashMap<String, Method?>()
 
     fun setColour(view: View, colour: Int): Boolean {
-        val method = cache.getOrPut(view.javaClass.name) { findSetter(view, Int::class.javaPrimitiveType) }
+        val method = cache.getOrPut(view.javaClass.name) { findSetter(view, Int::class.javaPrimitiveType!!) }
         return invoke(view, method, colour)
     }
 

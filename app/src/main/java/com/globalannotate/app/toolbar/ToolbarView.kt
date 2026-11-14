@@ -202,6 +202,36 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         redo.enabledVisual = canRedo
     }
 
+    /**
+     * Mi Canvas' selection motion: only the chosen tool stretches, anchored at
+     * the capsule floor. Neighbours never move and the row never re-lays out,
+     * so the brush can only grow upwards ("only shrinks forward").
+     */
+    private fun stretch(glyph: View, selected: Boolean) {
+        glyph.animate().cancel()
+        if (glyph.height == 0) {
+            glyph.post { stretch(glyph, selected) }
+            return
+        }
+        glyph.pivotX = glyph.width / 2f
+        glyph.pivotY = glyph.height.toFloat()
+        if (selected) {
+            glyph.animate()
+                .scaleY(1.09f)
+                .translationY(-3f * density)
+                .setDuration(260)
+                .setInterpolator(android.view.animation.OvershootInterpolator(0.7f))
+                .start()
+        } else {
+            glyph.animate()
+                .scaleY(1f)
+                .translationY(0f)
+                .setDuration(180)
+                .setInterpolator(android.view.animation.DecelerateInterpolator())
+                .start()
+        }
+    }
+
     fun contentWidthPx(): Int {
         row.measure(
             MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
