@@ -92,7 +92,10 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
                 isClickable = true
                 foreground = Ripple.rounded(context, dp(12).toFloat())
                 setOnClickListener { listener.onTool(style, centerOnScreen(this)) }
-                layoutParams = LinearLayout.LayoutParams(dp(45), dp(BRUSH_DP)).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    dp(if (style == PenStyle.ERASER) LARGE_WIDTH_DP else PEN_WIDTH_DP),
+                    dp(if (style == PenStyle.ERASER) LARGE_HEIGHT_DP else PEN_HEIGHT_DP),
+                ).apply {
                     if (style == PenStyle.toolbarOrder.first()) marginStart = dp(20)
                 }
             }
@@ -178,19 +181,13 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
     // ── state ──────────────────────────────────────────────────────────────
 
     fun update(brush: BrushConfig, canUndo: Boolean, canRedo: Boolean) {
+        // Slot geometry is fixed per tool, exactly like Mi Canvas: the eraser
+        // (and ruler) use the large slot, every pen the normal one, and
+        // selecting a brush never resizes or reflows the row.
         glyphs.forEach { (style, glyph) ->
             glyph.color = brush.color
             glyph.checked = style == brush.style
-            val lp = glyph.layoutParams as LinearLayout.LayoutParams
-            val w = dp(if (style == brush.style) 64 else 45)
-            val h = dp(if (style == brush.style) 94 else BRUSH_DP)
-            if (lp.width != w || lp.height != h) {
-                lp.width = w
-                lp.height = h
-                glyph.layoutParams = lp
-            }
         }
-        val night = isNight()
         swatches.forEach { it.checked = it.color == brush.color }
         undo.enabledVisual = canUndo
         redo.enabledVisual = canRedo
@@ -334,7 +331,12 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
 
     private companion object {
         const val CAPSULE_DP = 102
-        const val BRUSH_DP = 77
+        /** Measured pen slot, 44.7dp x 77dp. */
+        const val PEN_WIDTH_DP = 45
+        const val PEN_HEIGHT_DP = 77
+        /** Eraser / ruler use cp_brush_width_large, 63.6dp x 93.8dp on screen. */
+        const val LARGE_WIDTH_DP = 64
+        const val LARGE_HEIGHT_DP = 94
         const val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
     }
 }

@@ -1,17 +1,16 @@
 package com.globalannotate.app.canvas
 
 import android.graphics.Bitmap
+import android.graphics.BitmapShader
 import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.ColorFilter
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
-import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PorterDuff
 import android.graphics.PorterDuffXfermode
-import android.graphics.RectF
+import android.graphics.Shader
 import com.globalannotate.app.model.PenStyle
 import kotlin.math.abs
 import kotlin.math.hypot
@@ -19,37 +18,42 @@ import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Paints [InkStroke]s. Widths come from the pen pressure and the brush settings;
- * each brush has its own texture so the six tools feel different, which was the
- * point of the exercise:
+ * Paints [InkStroke]s.
  *
- *  圆珠笔  hard thin line, width barely reacts to pressure
- *  铅笔    grainy graphite stamps, tilt widens the contact patch
- *  钢笔    smooth ribbon, width and taper follow pressure
- *  马克笔  flat angled nib, translucent, overlaps darken
- *  水彩笔  mottled wash with a soft bleed edge
- *  橡皮    CLEAR round stamps (pixel) or whole-stroke removal
+ * Every brush is a swept band along the smoothed centre line, so the shape only
+ * ever moves forward with the pen — no lateral wobble. What differs per brush
+ * is the band profile and the texture applied *through* it:
+ *
+ *  圆珠笔  hard thin band, constant width
+ *  铅笔    soft band, graphite grain in the alpha channel, tilt widens it
+ *  钢笔    width and taper follow pressure
+ *  马克笔  chisel band, translucent, overlaps darken
+ *  水彩笔  two wash passes with mottled alpha and a wet edge
+ *  橡皮    CLEAR band
  */
 class InkEngine {
 
     private var grain: Bitmap? = null
     private var wash: Bitmap? = null
+    private val tinted = HashMap<Long, Bitmap>()
+    private var density = 2.75f
 
-    private val stampPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-    private val matrix = Matrix()
+    fun setDensity(value: Float) { density = value }
 
-    private fun grain(density: Float): Bitmap {
+    // ── textures ───────────────────────────────────────────────────────────
+
+    private fun grain(): Bitmap {
         grain?.let { return it }
-        val n = 96
+        val n = 128
         val bmp = Bitmap.createBitmap(n, n, Bitmap.Config.ARGB_8888)
         val random = java.util.Random(7)
         val px = IntArray(n * n)
         for (i in px.indices) {
             val v = random.nextDouble()
             val a = when {
-                v < 0.55 -> 0
-                v < 0.95 -> ((v - 0.55) / 0.40 * 235).toInt()
-                else -> 255
+                v < 0.14 -> 0
+                v < 0.9 -> 70 + ((v - 0.14) / 0.76 * 150).toInt()
+                else -> 235
             }
             px[i] = Color.argb(a, 255, 255, 255)
         }
@@ -64,13 +68,12 @@ class InkEngine {
         val bmp = Bitmap.createBitmap(n, n, Bitmap.Config.ARGB_8888)
         val random = java.util.Random(11)
         val px = IntArray(n * n)
-        // Blotchy alpha: a base wash plus darker pooled spots.
-        val seeds = Array(26) { Triple(random.nextFloat() * n, random.nextFloat() * n, 6 + random.nextFloat() * 18) }
+        val seeds = Array(18) { Triple(random.nextFloat() * n, random.nextFloat() * n, 10f + random.nextFloat() * 22f) }
         for (y in 0 until n) for (x in 0 until n) {
-            var a = 150 + random.nextInt(40)
+            var a = 186 + random.nextInt(30)
             for (s in seeds) {
                 val d = hypot(x - s.first, y - s.second)
-                if (d < s.third) a += ((1f - d / s.third) * 70).toInt()
+                if (d < s.third) a += ((1f - d / s.third) * 50).toInt()
             }
             px[y * n + x] = Color.argb(a.coerceIn(0, 255), 255, 255, 255)
         }
@@ -79,12 +82,37 @@ class InkEngine {
         return bmp
     }
 
+    /** Texture recoloured to [color], cached per brush colour. */
+    private fun texture(style: PenStyle, color: Int): Bitmap? {
+        val key = (style.ordinal.toLong() shl 32) or (color.toLong() and 0xFFFFFFFFL)
+        tinted[key]?.let { return it }
+        val source = when (style) {
+            PenStyle.PENCIL -> grain()
+            PenStyle.WATER_COLOR -> wash()
+            else -> return null
+        }
+        val tintedBmp = Bitmap.createBitmap(source.width, source.height, Bitmap.Config.ARGB_8888)
+        val px = IntArray(source.width * source.height)
+        source.getPixels(px, 0, source.width, 0, 0, source.width, source.height)
+        val r = Color.red(color)
+        val g = Color.green(color)
+        val b = Color.blue(color)
+        val baseAlpha = Color.alpha(color) / 255f
+        for (i in px.indices) {
+            val a = (Color.alpha(px[i]) * baseAlpha).toInt().coerceIn(0, 255)
+            px[i] = Color.argb(a, r, g, b)
+        }
+        tintedBmp.setPixels(px, 0, source.width, 0, 0, source.width, source.height)
+        tinted[key] = tintedBmp
+        return tintedBmp
+    }
+
     // ── public ─────────────────────────────────────────────────────────────
 
     fun draw(canvas: Canvas, stroke: InkStroke, offsetY: Float) {
         if (stroke.points.isEmpty()) return
         when (stroke.style) {
-            PenStyle.PENCIL -> pencil(canvas, stroke, offsetY)
+            PenStyle.PENCIL -> textured(canvas, stroke, offsetY, taper = false, extra = 1f)
             PenStyle.WATER_COLOR -> waterColor(canvas, stroke, offsetY)
             PenStyle.BALLPOINT -> ballpoint(canvas, stroke, offsetY)
             PenStyle.MARKER, PenStyle.HIGHLIGHTER -> marker(canvas, stroke, offsetY)
@@ -98,179 +126,118 @@ class InkEngine {
         val pts = stroke.points
         if (pts.isEmpty()) return
         if (pts.size == 1) {
-            stamp(canvas, stroke, pts[0], pts[0], offsetY, pts[0].width)
+            singlePoint(canvas, stroke, pts[0], offsetY)
             return
         }
-        stamp(canvas, stroke, pts[pts.size - 2], pts[pts.size - 1], offsetY, (pts[pts.size - 2].width + pts[pts.size - 1].width) / 2f)
+        val from = max(0, pts.size - 3)
+        val part = InkStroke(pts.subList(from, pts.size).toMutableList(), stroke.color, stroke.style)
+        draw(canvas, part, offsetY)
     }
 
     // ── brushes ────────────────────────────────────────────────────────────
 
-    private fun paintFor(stroke: InkStroke): Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        if (stroke.isEraser) {
+    private fun eraser(canvas: Canvas, stroke: InkStroke, offsetY: Float) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
             color = Color.BLACK
-        } else {
-            color = stroke.color
+            style = Paint.Style.FILL
         }
-    }
-
-    private fun eraser(canvas: Canvas, stroke: InkStroke, offsetY: Float) {
-        val paint = paintFor(stroke)
-        paint.style = Paint.Style.STROKE
-        paint.strokeCap = Paint.Cap.ROUND
-        paint.strokeJoin = Paint.Join.ROUND
-        val pts = stroke.points
-        if (pts.size == 1) {
-            canvas.drawCircle(pts[0].x, pts[0].y - offsetY, pts[0].width / 2f, paint)
-            return
-        }
-        for (i in 1 until pts.size) {
-            paint.strokeWidth = (pts[i - 1].width + pts[i].width) / 2f
-            canvas.drawLine(pts[i - 1].x, pts[i - 1].y - offsetY, pts[i].x, pts[i].y - offsetY, paint)
-        }
+        canvas.drawPath(ribbon(stroke, offsetY, nibAngle = 0f, taper = false), paint)
     }
 
     private fun ballpoint(canvas: Canvas, stroke: InkStroke, offsetY: Float) {
         val pts = stroke.points
-        val paint = paintFor(stroke).apply {
+        val width = pts.averageWidth()
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeCap = Paint.Cap.ROUND
             strokeJoin = Paint.Join.ROUND
-            strokeWidth = pts.averageWidth()
+            color = stroke.color
+            strokeWidth = width
+            shader = null
         }
         canvas.drawPath(smoothPath(pts, offsetY), paint)
-        // A hair of sheen down the middle, like wet ballpoint ink.
-        paint.color = Color.argb(60, 255, 255, 255)
-        paint.strokeWidth = max(paint.strokeWidth * 0.25f, 0.6f)
+        paint.color = Color.argb((Color.alpha(stroke.color) * 0.22f).toInt(), 255, 255, 255)
+        paint.strokeWidth = max(width * 0.28f, 0.6f)
         canvas.drawPath(smoothPath(pts, offsetY), paint)
     }
 
     private fun fountain(canvas: Canvas, stroke: InkStroke, offsetY: Float) {
-        val paint = paintFor(stroke)
-        val path = ribbon(stroke, offsetY, nibAngle = 0f, taper = true)
-        canvas.drawPath(path, paint)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = stroke.color
+        }
+        canvas.drawPath(ribbon(stroke, offsetY, nibAngle = 0f, taper = true), paint)
         val pts = stroke.points
-        // Round the ends so a dot is a dot, not a wedge.
-        canvas.drawCircle(pts.first().x, pts.first().y - offsetY, pts.first().width * 0.17f, paint)
-        canvas.drawCircle(pts.last().x, pts.last().y - offsetY, pts.last().width * 0.22f, paint)
+        canvas.drawCircle(pts.first().x, pts.first().y - offsetY, pts.first().width * 0.16f, paint)
+        canvas.drawCircle(pts.last().x, pts.last().y - offsetY, pts.last().width * 0.2f, paint)
     }
 
     private fun marker(canvas: Canvas, stroke: InkStroke, offsetY: Float) {
-        val paint = paintFor(stroke)
+        // Chisel: the band is offset slightly along the nib, never sideways
+        // relative to the stroke direction.
         val tilt = stroke.points.averageTilt()
-        canvas.drawPath(ribbon(stroke, offsetY, nibAngle = tilt * 1.2f, taper = false), paint)
+        val nib = (tilt * 0.9f).coerceIn(0f, 0.7f)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            color = stroke.color
+        }
+        canvas.drawPath(ribbon(stroke, offsetY, nibAngle = nib, taper = false), paint)
     }
 
-    private fun pencil(canvas: Canvas, stroke: InkStroke, offsetY: Float) {
-        val pts = stroke.points
-        val bitmap = grain(densityHint)
-        val colorFilter = tint(stroke.color)
-        stampPaint.reset()
-        stampPaint.isAntiAlias = true
-        stampPaint.isFilterBitmap = true
-        stampPaint.colorFilter = colorFilter
-        var walked = 0f
-        for (i in 1 until pts.size) {
-            val a = pts[i - 1]
-            val b = pts[i]
-            val d = hypot(b.x - a.x, b.y - a.y)
-            var t = 0f
-            while (t < d) {
-                val f = t / d
-                val x = a.x + (b.x - a.x) * f
-                val y = a.y + (b.y - a.y) * f
-                val w = a.width + (b.width - a.width) * f
-                val size = w * (0.85f + 0.3f * noise(i + walked, 3))
-                matrix.setScale(size / 96f, size / 96f)
-                matrix.postRotate(noise(i + walked, 7) * 360f)
-                matrix.postTranslate(x - size / 2f, y - offsetY - size / 2f)
-                canvas.drawBitmap(bitmap, matrix, stampPaint)
-                t += max(w * 0.22f, 1.1f)
-                walked += 1f
-            }
+    /** Pencil / watercolour: a clean band filled with the brush texture. */
+    private fun textured(
+        canvas: Canvas,
+        stroke: InkStroke,
+        offsetY: Float,
+        taper: Boolean,
+        extra: Float,
+    ) {
+        val tex = texture(stroke.style, stroke.color) ?: return
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            shader = BitmapShader(tex, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+            colorFilter = ColorMatrixColorFilter(ColorMatrix())
         }
-        // A faint graphite core keeps the line readable at small sizes.
-        val core = paintFor(stroke).apply {
-            style = Paint.Style.STROKE
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-            strokeWidth = max(pts.averageWidth() * 0.30f, 0.7f)
-            alpha = (Color.alpha(stroke.color) * 0.5f).toInt()
+        if (extra != 1f) {
+            // Widen the band without moving its centre line.
+            val pts = stroke.points.map { InkPoint(it.x, it.y, it.width * extra, it.tilt) }
+            canvas.drawPath(ribbon(InkStroke(pts.toMutableList(), stroke.color, stroke.style), offsetY, 0f, taper), paint)
+        } else {
+            canvas.drawPath(ribbon(stroke, offsetY, nibAngle = 0f, taper = taper), paint)
         }
-        canvas.drawPath(smoothPath(pts, offsetY), core)
     }
 
     private fun waterColor(canvas: Canvas, stroke: InkStroke, offsetY: Float) {
-        val pts = stroke.points
-        val bitmap = wash()
-        val paint = stampPaint
-        paint.reset()
-        paint.isAntiAlias = true
-        paint.isFilterBitmap = true
-        paint.colorFilter = tint(stroke.color)
-        val baseAlpha = Color.alpha(stroke.color) / 255f
-        var walked = 0f
-        for (i in 1 until pts.size) {
-            val a = pts[i - 1]
-            val b = pts[i]
-            val d = hypot(b.x - a.x, b.y - a.y)
-            var t = 0f
-            while (t < d) {
-                val f = t / d
-                val x = a.x + (b.x - a.x) * f
-                val y = a.y + (b.y - a.y) * f
-                val w = a.width + (b.width - a.width) * f
-                val size = w * (1.25f + 0.25f * noise(i + walked, 5))
-                paint.alpha = (255 * baseAlpha * 0.45f).toInt().coerceIn(8, 255)
-                matrix.setScale(size / 128f, size / 128f)
-                matrix.postRotate(noise(i + walked, 9) * 360f)
-                matrix.postTranslate(x - size / 2f, y - offsetY - size / 2f)
-                canvas.drawBitmap(bitmap, matrix, paint)
-                t += max(w * 0.18f, 1.4f)
-                walked += 1f
-            }
+        val tex = texture(stroke.style, stroke.color) ?: return
+        // Bleed pass: a wider, fainter band with the same mottled alpha.
+        val bleed = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            shader = BitmapShader(tex, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+            alpha = 90
         }
-        // Crisp core so the brush reads like a wash with a wet edge.
-        val core = paintFor(stroke).apply {
-            style = Paint.Style.STROKE
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-            strokeWidth = max(pts.averageWidth() * 0.55f, 1f)
-            alpha = (Color.alpha(stroke.color) * 0.55f).toInt()
-        }
-        canvas.drawPath(smoothPath(pts, offsetY), core)
-    }
-
-    // ── helpers ────────────────────────────────────────────────────────────
-
-    private var densityHint = 2.75f
-    fun setDensity(density: Float) { densityHint = density }
-
-    private fun stamp(canvas: Canvas, stroke: InkStroke, a: InkPoint, b: InkPoint, offsetY: Float, width: Float) {
-        val paint = paintFor(stroke).apply {
-            style = Paint.Style.STROKE
-            strokeCap = if (stroke.style.isMarkerLike) Paint.Cap.SQUARE else Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-            strokeWidth = max(width, 0.8f)
-        }
-        if (a === b) {
-            canvas.drawCircle(a.x, a.y - offsetY, max(width / 2f, 0.8f), paint)
-            return
-        }
-        canvas.drawLine(a.x, a.y - offsetY, b.x, b.y - offsetY, paint)
-    }
-
-    private fun tint(color: Int): ColorFilter {
-        val matrix = ColorMatrix()
-        matrix.setScale(
-            Color.red(color) / 255f,
-            Color.green(color) / 255f,
-            Color.blue(color) / 255f,
-            Color.alpha(color) / 255f,
+        val pts = stroke.points.map { InkPoint(it.x, it.y, it.width * 1.28f, it.tilt) }
+        canvas.drawPath(
+            ribbon(InkStroke(pts.toMutableList(), stroke.color, stroke.style), offsetY, 0f, false),
+            bleed,
         )
-        return ColorMatrixColorFilter(matrix)
+        val body = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.FILL
+            shader = BitmapShader(tex, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT)
+            alpha = 170
+        }
+        canvas.drawPath(ribbon(stroke, offsetY, 0f, false), body)
     }
+
+    private fun singlePoint(canvas: Canvas, stroke: InkStroke, p: InkPoint, offsetY: Float) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = if (stroke.isEraser) Color.BLACK else stroke.color
+            if (stroke.isEraser) xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+        }
+        canvas.drawCircle(p.x, p.y - offsetY, max(p.width / 2f, 0.7f), paint)
+    }
+
+    // ── geometry ───────────────────────────────────────────────────────────
 
     /** Catmull-Rom → cubic Bezier, so handwriting has no polyline corners. */
     private fun smoothPath(pts: List<InkPoint>, offsetY: Float): Path {
@@ -300,8 +267,9 @@ class InkEngine {
     }
 
     /**
-     * Variable-width polygon around the centre line. [nibAngle] rotates the
-     * offset direction, which is what makes the marker look like a chisel.
+     * Variable-width band around the smoothed centre line. [nibAngle] only
+     * rotates the offset direction slightly (a chisel nib); the band never
+     * leaves the stroke's own direction.
      */
     private fun ribbon(stroke: InkStroke, offsetY: Float, nibAngle: Float, taper: Boolean): Path {
         val pts = stroke.points
@@ -311,46 +279,69 @@ class InkEngine {
             path.addCircle(pts[0].x, pts[0].y - offsetY, pts[0].width / 2f, Path.Direction.CW)
             return path
         }
+        // Resample so the outline follows the same spline as smoothPath.
+        val dense = resample(pts)
         val cosA = kotlin.math.cos(nibAngle)
         val sinA = kotlin.math.sin(nibAngle)
-        val left = ArrayList<Float>(pts.size * 2)
-        val right = ArrayList<Float>(pts.size * 2)
-        for (i in pts.indices) {
-            val prev = pts[(i - 1).coerceAtLeast(0)]
-            val next = pts[(i + 1).coerceAtMost(pts.size - 1)]
+        val left = ArrayList<Float>(dense.size * 2)
+        val right = ArrayList<Float>(dense.size * 2)
+        for (i in dense.indices) {
+            val prev = dense[(i - 1).coerceAtLeast(0)]
+            val next = dense[(i + 1).coerceAtMost(dense.size - 1)]
             var dx = next.x - prev.x
             var dy = next.y - prev.y
             val len = hypot(dx, dy).coerceAtLeast(0.0001f)
             dx /= len
             dy /= len
-            // Base normal, rotated toward the nib angle (chisel effect).
             var nx = -dy
             var ny = dx
             if (nibAngle != 0f) {
                 val rx = nx * cosA - ny * sinA
                 val ry = nx * sinA + ny * cosA
-                nx = rx; ny = ry
+                nx = rx
+                ny = ry
             }
-            var half = pts[i].width / 2f
+            var half = dense[i].width / 2f
             if (taper) {
-                val t = i / (pts.size - 1f)
-                half *= 0.32f + 0.68f * min(1f, min(t, 1f - t) * 3.2f)
+                val t = i / (dense.size - 1f)
+                half *= 0.30f + 0.70f * min(1f, min(t, 1f - t) * 3.0f)
             }
-            left.add(pts[i].x + nx * half)
-            left.add(pts[i].y + ny * half - offsetY)
-            right.add(pts[i].x - nx * half)
-            right.add(pts[i].y - ny * half - offsetY)
+            left.add(dense[i].x + nx * half)
+            left.add(dense[i].y + ny * half - offsetY)
+            right.add(dense[i].x - nx * half)
+            right.add(dense[i].y - ny * half - offsetY)
         }
         path.moveTo(left[0], left[1])
-        for (i in 1 until pts.size) path.lineTo(left[i * 2], left[i * 2 + 1])
-        for (i in pts.size - 1 downTo 0) path.lineTo(right[i * 2], right[i * 2 + 1])
+        for (i in 1 until dense.size) path.lineTo(left[i * 2], left[i * 2 + 1])
+        for (i in dense.size - 1 downTo 0) path.lineTo(right[i * 2], right[i * 2 + 1])
         path.close()
         return path
     }
 
-    private fun noise(seed: Float, salt: Int): Float {
-        val v = kotlin.math.sin(seed * 12.9898 + salt * 78.233f) * 43758.5453f
-        return (v - kotlin.math.floor(v)).toFloat()
+    /** Subdivide long segments so the band edge curves with the stroke. */
+    private fun resample(pts: List<InkPoint>): List<InkPoint> {
+        if (pts.size < 2) return pts
+        val out = ArrayList<InkPoint>(pts.size * 2)
+        for (i in 0 until pts.size - 1) {
+            val a = pts[i]
+            val b = pts[i + 1]
+            out.add(a)
+            val d = hypot(b.x - a.x, b.y - a.y)
+            val steps = (d / max(2.2f, a.width * 0.22f)).toInt().coerceIn(0, 6)
+            for (s in 1 until steps) {
+                val t = s / steps.toFloat()
+                out.add(
+                    InkPoint(
+                        a.x + (b.x - a.x) * t,
+                        a.y + (b.y - a.y) * t,
+                        a.width + (b.width - a.width) * t,
+                        a.tilt + (b.tilt - a.tilt) * t,
+                    ),
+                )
+            }
+        }
+        out.add(pts.last())
+        return out
     }
 
     private fun List<InkPoint>.averageWidth(): Float {
@@ -365,5 +356,11 @@ class InkEngine {
         var sum = 0f
         for (p in this) sum += p.tilt
         return sum / size
+    }
+
+    @Suppress("unused")
+    private fun noise(seed: Float, salt: Int): Float {
+        val v = kotlin.math.sin(seed * 12.9898 + salt * 78.233f) * 43758.5453f
+        return (v - kotlin.math.floor(v)).toFloat()
     }
 }

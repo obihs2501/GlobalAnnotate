@@ -42,31 +42,32 @@ class StrokePreview @JvmOverloads constructor(
             color = if (b.style.isEraser) Color.parseColor("#D0D0D0") else b.effectiveColor,
             style = b.style,
         )
-        val padX = width * 0.10f
-        val padY = height * 0.30f
+        val padX = width * 0.08f
         val span = width - padX * 2
-        val amp = (height * 0.5f - padY).coerceAtLeast(6f)
-        val n = 72
+        val amp = height * 0.22f
+        val n = 96
         val base = if (b.style.isEraser) {
             b.style.toPixels(b.eraserSize, density)
         } else {
             b.style.toPixels(b.size, density)
         }
+        // One clean wave, the way Mi Canvas samples a brush: pressure rises and
+        // falls along the stroke, so the taper is visible at both ends.
         for (i in 0..n) {
             val t = i / n.toFloat()
-            val pressure = (0.15f + 0.85f * sin(Math.PI * t).toFloat()).coerceIn(0.05f, 1f)
+            val pressure = (0.2f + 0.8f * sin(Math.PI * t).toFloat()).coerceIn(0.08f, 1f)
             val x = padX + span * t
-            val y = height / 2f + amp * sin((t * 2.2f) * Math.PI.toFloat() - 0.9f)
+            val y = height / 2f - amp * sin((t * 1.6f) * Math.PI.toFloat() - 0.75f)
             val w = when (b.style) {
-                com.globalannotate.app.model.PenStyle.BALLPOINT -> base
+                com.globalannotate.app.model.PenStyle.BALLPOINT -> base * 0.9f
                 com.globalannotate.app.model.PenStyle.INK_PEN ->
-                    base * (0.18f + 1.25f * pressure * (0.45f + 1.1f * b.sensitivity))
+                    base * (0.35f + 1.05f * pressure) * (0.8f + b.sensitivity * 0.5f)
                 com.globalannotate.app.model.PenStyle.MARKER,
-                com.globalannotate.app.model.PenStyle.HIGHLIGHTER -> base
-                com.globalannotate.app.model.PenStyle.WATER_COLOR -> base * (0.7f + 0.5f * pressure)
-                else -> base * (0.85f + 0.3f * pressure)
+                com.globalannotate.app.model.PenStyle.HIGHLIGHTER -> base * 1.15f
+                com.globalannotate.app.model.PenStyle.WATER_COLOR -> base * (0.85f + 0.25f * pressure)
+                else -> base * (0.9f + 0.25f * pressure)
             }
-            stroke.points.add(InkPoint(x, y, w.coerceAtLeast(1f), 0.35f))
+            stroke.points.add(InkPoint(x, y, w.coerceAtLeast(1f), 0.3f))
         }
         return stroke
     }
