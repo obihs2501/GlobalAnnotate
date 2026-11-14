@@ -58,6 +58,8 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
     private val sliderAlphaValue: TextView
     private val block: ColorSwatchBlock
     private val recent = mutableListOf<Swatch>()
+    /** Recent-colour dots injected into Mi Canvas' popup (no presenter to fill them). */
+    private val shellDots = mutableListOf<RecentDot>()
 
     private val hueRail = Rail()
     private val saturationRail = Rail()
@@ -202,6 +204,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
             remoteShell = shell
             remoteActive = true
             bindShellOpacityRails(shell)
+            bindShellRecentColors(shell)
             // The straw runs our own screen picker instead of their floating one.
             findInTree(shell.root) { it.javaClass.name == MC_STRAW }?.setOnClickListener {
                 listener.onPipette()
@@ -263,6 +266,61 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
         }
     }
 
+
+    /**
+     * Mi Canvas creates twelve recent-colour dots but leaves them GONE until its
+     * presenter pushes the recent list. Without that presenter the bottom row
+     * was blank. Fill the first row with our own dots (26dp, 12.8dp pitch, as in
+     * `m25424Ili1Ii11`) and wire them to the same colour path as the board.
+     */
+    private fun bindShellRecentColors(shell: MiCanvasPopupShell) {
+        val id = MiCanvasUi.id("penpicker_recent_color_list_1")
+        if (id == 0) return
+        val row = shell.root.findViewById<View>(id) as? LinearLayout ?: return
+        row.removeAllViews()
+        val size = dp(26)
+        shellDots.clear()
+        for (c in BrushConfig.RECENT_COLORS.take(6)) {
+            val dot = RecentDot(c)
+            dot.setOnClickListener {
+                remoteEcho = true
+                try {
+                    color = c or 0xFF000000.toInt()
+                    syncViews(fromGrid = true)
+                    listener.onColor(color)
+                } finally {
+                    remoteEcho = false
+                }
+                pushRemote(color)
+            }
+            shellDots.add(dot)
+            row.addView(dot, LinearLayout.LayoutParams(size, size).apply { marginEnd = dp(13) })
+        }
+        val row2 = MiCanvasUi.id("penpicker_recent_color_list_2")
+        if (row2 != 0) shell.root.findViewById<View>(row2)?.visibility = View.GONE
+    }
+
+    /** A flat colour dot with the white inner ring Mi Canvas uses for selection. */
+    private inner class RecentDot(private val swatch: Int) : View(context) {
+        private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        var checked = false
+            set(value) { field = value; invalidate() }
+
+        init { isClickable = true }
+
+        override fun onDraw(canvas: android.graphics.Canvas) {
+            val r = minOf(width, height) / 2f - 1f
+            paint.style = android.graphics.Paint.Style.FILL
+            paint.color = swatch
+            canvas.drawCircle(width / 2f, height / 2f, r, paint)
+            if (checked) {
+                paint.style = android.graphics.Paint.Style.STROKE
+                paint.strokeWidth = 1.25f * density
+                paint.color = Color.WHITE
+                canvas.drawCircle(width / 2f, height / 2f, r * 0.76f, paint)
+            }
+        }
+    }
     /**
      * `l1lII1ιιιιIl.l1IIiiι` with kind 1 is an alpha-only event and carries no
      * HSL model. Handle it before the HSL lookup so a stray alpha callback is
@@ -347,6 +405,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
             listener.onColor(color)
             listener.onAlpha(a)
             recent.forEach { it.checked = sameRgb(it.color, color) }
+            shellDots.forEach { it.checked = sameRgb(it.swatch, color) }
         } finally {
             remoteEcho = false
         }
@@ -523,6 +582,7 @@ class ColorPanel(context: Context, private val listener: Listener) : LinearLayou
             sliderAlphaRail.setProgress(alpha / 255f)
         }
         recent.forEach { it.checked = sameRgb(it.color, color) }
+        shellDots.forEach { it.checked = sameRgb(it.swatch, color) }
     }
     private fun sameRgb(a: Int, b: Int): Boolean = (a and 0xFFFFFF) == (b and 0xFFFFFF)
 
