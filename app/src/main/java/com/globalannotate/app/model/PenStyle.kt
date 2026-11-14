@@ -25,13 +25,13 @@ enum class PenStyle(
     val isEraser: Boolean = false,
 ) {
     // Ranges and defaults are PenBean's constants from Mi Canvas.
-    BALLPOINT("圆珠笔", 1, 22, 6, 255, 0.52f),
-    PENCIL("铅笔", 1, 6, 3, 255, 0.58f, titleSensitivity = "倾斜角灵敏度"),
-    INK_PEN("钢笔", 1, 30, 15, 255, 0.72f, titleSensitivity = "压力灵敏度", showTip = true),
-    MARKER("马克笔", 5, 65, 30, 255, 0.55f),
-    WATER_COLOR("水彩笔", 5, 65, 30, 255, 0.95f),
-    HIGHLIGHTER("荧光笔", 5, 65, 30, 90, 0.55f),
-    ERASER("橡皮", 1, 30, 6, 255, 0.72f, isEraser = true),
+    BALLPOINT("圆珠笔", 1, 22, 6, 255, 0.40f),
+    PENCIL("铅笔", 1, 6, 3, 255, 0.45f, titleSensitivity = "倾斜角灵敏度"),
+    INK_PEN("钢笔", 1, 30, 15, 255, 0.55f, titleSensitivity = "压力灵敏度", showTip = true),
+    MARKER("马克笔", 5, 65, 30, 255, 0.42f),
+    WATER_COLOR("水彩笔", 5, 65, 30, 255, 0.75f),
+    HIGHLIGHTER("荧光笔", 5, 65, 30, 90, 0.42f),
+    ERASER("橡皮", 1, 30, 6, 255, 0.55f, isEraser = true),
     ;
 
     /** Stroke width in pixels for a Mi Canvas size value. */
