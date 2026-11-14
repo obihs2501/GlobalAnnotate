@@ -867,37 +867,26 @@ class AnnotationService : Service(),
                     "com.xiaomi.penpicker.popup.SelectAlphaView",
                 )) com.globalannotate.app.mc.MiCanvasUi.dumpMethods(name)
             }
-            // Feasibility probe: Mi Canvas' own colour popup, hosted as its own
-            // PopupWindow attached to the bar.
+            // Feasibility probe: host Mi Canvas' own colour popup content inside
+            // our overlay window, so its layout decides everything visible.
             "com.globalannotate.action.MCPOPUP" -> {
                 if (!active) setActive(true)
                 val popup = com.globalannotate.app.mc.MiCanvasUi.createColorPopup()
-                Log.i(TAG, "MCPOPUP built=$popup content=${popup?.contentView}")
-                if (popup != null) {
-                    runCatching {
-                        popup.isOutsideTouchable = true
-                        popup.showAsDropDown(toolbar, 0, -dp(40))
-                        // The window is measured when it is shown, so the content
-                        // height from Mi Canvas' own presenter has to be applied
-                        // afterwards and pushed back to the window.
-                        val px = com.globalannotate.app.mc.MiCanvasUi
-                            .dimension("creation_color_picker_popup_height")
-                        popup.javaClass
-                            .getMethod("IlIll1i", Int::class.javaPrimitiveType)
-                            .invoke(popup, px)
-                        // `setHeight` is overridden by Mi Canvas to size the content;
-                        // the real PopupWindow height is behind `I111llι`.
-                        popup.javaClass
-                            .getMethod("I111ll\u03b9", Int::class.javaPrimitiveType)
-                            .invoke(popup, px)
-                        popup.update()
-                        Log.i(TAG, "MCPOPUP sized to $px")
-                        popup.contentView?.postDelayed({
-                            Log.i(TAG, "MCPOPUP window=${popup.width}x${popup.height}")
-                            dumpTree(popup.contentView, "MCPOPUP")
-                        }, 400)
-                    }.onFailure { Log.e(TAG, "MCPOPUP show failed", it) }
-                }
+                Log.i(TAG, "MCPOPUP built=$popup")
+                runCatching {
+                    val content = popup!!.contentView
+                    (content.parent as? android.view.ViewGroup)?.removeView(content)
+                    val px = com.globalannotate.app.mc.MiCanvasUi
+                        .dimension("creation_color_picker_popup_height")
+                    content.layoutParams = FrameLayout.LayoutParams(dp(338), px).apply {
+                        leftMargin = dp(40)
+                        topMargin = dp(160)
+                    }
+                    popupHost.addView(content)
+                    popupHost.visibility = View.VISIBLE
+                    excludeFromCapture(popupHost)
+                    content.postDelayed({ dumpTree(content, "MCPOPUP") }, 300)
+                }.onFailure { Log.e(TAG, "MCPOPUP host failed", it) }
             }
         }
     }
