@@ -173,7 +173,7 @@ class AnnotationService : Service(),
             // the earlier 70.8dp head height left it at ~69% and read too small.
             artOffsetDp = 0f
             centreVertically = true
-            artLengthDp = ORB_SIZE_DP
+            artLengthDp = ORB_SIZE_DP.toFloat()
             artScale = 1f
             val capsule = androidx.core.content.ContextCompat.getColor(
                 this@AnnotationService, R.color.penpicker_background_color,
