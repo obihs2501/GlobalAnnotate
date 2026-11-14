@@ -600,6 +600,9 @@ class AnnotationService : Service(),
         panel.visibility = View.VISIBLE
         openPanel = panel
         popupHost.visibility = View.VISIBLE
+        Log.i(TAG, "host vis=${popupHost.visibility} panel vis=${panel.visibility} " +
+            "alpha=${panel.alpha} scale=${panel.scaleX} attached=${panel.isAttachedToWindow} " +
+            "hostAlpha=${popupParams.alpha}")
         panel.alpha = 0f
         panel.scaleX = 0.96f
         panel.scaleY = 0.96f
