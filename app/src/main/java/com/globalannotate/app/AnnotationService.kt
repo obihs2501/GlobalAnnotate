@@ -873,6 +873,8 @@ class AnnotationService : Service(),
                 // Skip the enter animation and the capture exclusion so the
                 // screenshot shows the panel exactly as Mi Canvas draws it.
                 colorPanel.alpha = 1f
+                colorPanel.color = canvas.brush.color
+                colorPanel.setAlphaValue(canvas.brush.alpha)
                 colorPanel.layoutParams = FrameLayout.LayoutParams(dp(338), dp(536)).apply {
                     leftMargin = dp(40)
                     topMargin = dp(60)
