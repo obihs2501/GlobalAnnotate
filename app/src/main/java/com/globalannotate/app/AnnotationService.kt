@@ -884,7 +884,7 @@ class AnnotationService : Service(),
                     }
                     popupHost.addView(content)
                     popupHost.visibility = View.VISIBLE
-                    excludeFromCapture(popupHost)
+                    // (skip-screenshot off while checking the look)
                     content.postDelayed({ dumpTree(content, "MCPOPUP") }, 300)
                 }.onFailure { Log.e(TAG, "MCPOPUP host failed", it) }
             }
