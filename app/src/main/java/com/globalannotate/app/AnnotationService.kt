@@ -201,7 +201,7 @@ class AnnotationService : Service(),
             // 36dp keeps the capsule clear of the launcher dock and the gesture
             // bar; the window is 18dp taller than the capsule for the tools'
             // outward travel, so this is measured from the window top.
-            y = prefs.getInt(KEY_BAR_Y, -1).let { if (it >= 0) it else screenHeight - dp(BAR_HEIGHT_DP) - dp(16) }
+            y = prefs.getInt(KEY_BAR_Y, -1).let { if (it >= 0) it else screenHeight - dp(BAR_HEIGHT_DP) - dp(100) }
         }
         orbParams = overlay(dp(96), dp(96), base).apply {
             gravity = Gravity.TOP or Gravity.START

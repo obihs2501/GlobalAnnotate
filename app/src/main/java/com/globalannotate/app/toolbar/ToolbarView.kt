@@ -80,12 +80,12 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
 
         undo = circle(R.drawable.picker_undo) { listener.onUndo() }.apply {
             layoutParams = LinearLayout.LayoutParams(dp(42), dp(42)).apply {
-                bottomMargin = dp((CAPSULE_DP - 42) / 2)
+                bottomMargin = dp((CAPSULE_DP - 42) / 2 + (WINDOW_HEIGHT_DP - CAPSULE_DP))
             }
         }
         redo = circle(R.drawable.picker_redo) { listener.onRedo() }.apply {
             layoutParams = LinearLayout.LayoutParams(dp(42), dp(42)).apply {
-                bottomMargin = dp((CAPSULE_DP - 42) / 2)
+                bottomMargin = dp((CAPSULE_DP - 42) / 2 + (WINDOW_HEIGHT_DP - CAPSULE_DP))
             }
         }
         row.addView(undo)
@@ -113,7 +113,7 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(dp(82), dp(82)).apply {
                 marginStart = dp(8)
-                bottomMargin = dp((CAPSULE_DP - 82) / 2)
+                bottomMargin = dp((CAPSULE_DP - 82) / 2 + (WINDOW_HEIGHT_DP - CAPSULE_DP))
             }
         }
         for (r in 0..1) {
@@ -144,7 +144,7 @@ class ToolbarView(context: Context, private val listener: Listener) : FrameLayou
         more = circle(R.drawable.picker_more) { listener.onOpenMore(centerOnScreen(this)) }.apply {
             layoutParams = LinearLayout.LayoutParams(dp(42), dp(42)).apply {
                 marginStart = dp(0)
-                bottomMargin = dp((CAPSULE_DP - 42) / 2)
+                bottomMargin = dp((CAPSULE_DP - 42) / 2 + (WINDOW_HEIGHT_DP - CAPSULE_DP))
             }
         }
         row.addView(more)
